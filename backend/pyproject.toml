@@ -1,0 +1,62 @@
+[project]
+name = "bikeshareyeg"
+version = "0.1.0"
+description = "Bike-sharing network planning, simulation, and visualization for Edmonton, AB"
+readme = "../README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # API
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    # Geospatial
+    "geopandas>=1.0",
+    "osmnx>=2.0",
+    "shapely>=2.0",
+    "pyproj>=3.7",
+    "h3>=4.1",
+    "fiona>=1.10",
+    # Network analysis
+    "networkx>=3.4",
+    # Simulation & optimization
+    "simpy>=4.1",
+    "ortools>=9.9",
+    # Data & analytics
+    "duckdb>=1.1",
+    "pandas>=2.2",
+    "numpy>=2.0",
+    "pyarrow>=18.0",
+    # Visualization (notebooks)
+    "pydeck>=0.9",
+    "matplotlib>=3.9",
+    "folium>=0.18",
+    # Notebooks
+    "jupyterlab>=4.3",
+    # HTTP & data fetching
+    "httpx>=0.28",
+    "requests>=2.32",
+    # Utilities
+    "python-dotenv>=1.0",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]

@@ -1,0 +1,18 @@
+{
+  "routingDefaults": {
+    "numItineraries": 5,
+    "walkSpeed": 1.4,
+    "bikeSpeed": 5.0,
+    "maxDirectStreetDuration": "30m",
+    "transferSlack": 120
+  },
+  "transit": {
+    "dynamicSearchWindow": {
+      "minWindow": "30m",
+      "maxWindow": "3h"
+    }
+  },
+  "server": {
+    "apiProcessingTimeout": "30s"
+  }
+}

@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Node
+node_modules/
+.next/
+out/
+
+# Data cache (large files)
+data/raw/
+data/processed/
+data/cache/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+data/gtfs/
+
+# OTP (large graph + OSM data)
+data/otp/*.osm.pbf
+data/otp/graph.obj
+data/otp/gtfs.zip
+
+# Generated overlay data (regenerate with scripts/process-census-data.py)
+data/overlays/
+
+# Overpass API cache (auto-fetched on first run)
+data/overpass_cache/
+
+# TypeScript build info
+*.tsbuildinfo

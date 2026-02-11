@@ -1,0 +1,18 @@
+services:
+  otp:
+    image: docker.io/opentripplanner/opentripplanner:2.6.0
+    container_name: bikeshareyeg-otp
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data/otp:/var/opentripplanner
+    environment:
+      - JAVA_OPTS=-Xmx4G
+    command: ["--load", "--serve"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "-X", "POST", "-H", "Content-Type: application/json", "-d", "{\"query\":\"{__typename}\"}", "http://localhost:8080/otp/routers/default/index/graphql"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s

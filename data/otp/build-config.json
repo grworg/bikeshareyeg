@@ -1,0 +1,19 @@
+{
+  "osm": [
+    {
+      "source": "alberta.osm.pbf"
+    }
+  ],
+  "transitFeeds": [
+    {
+      "type": "gtfs",
+      "source": "gtfs.zip"
+    }
+  ],
+  "areaVisibility": false,
+  "platformEntriesLinking": false,
+  "parentStopLinking": true,
+  "streets": {
+    "limitWalkNoThru": false
+  }
+}
