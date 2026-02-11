@@ -26,7 +26,7 @@ import h3
 import numpy as np
 from ortools.sat.python import cp_model
 
-from src.config import settings, EDMONTON_CENTER
+from src.config import settings
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -156,6 +156,38 @@ def _min_distances_m(
     return min_d
 
 
+def _count_within_radius_m(
+    query_lats: np.ndarray,
+    query_lngs: np.ndarray,
+    ref_lats: np.ndarray,
+    ref_lngs: np.ndarray,
+    radius_m: float,
+    batch_size: int = 500,
+) -> np.ndarray:
+    """For each query point, count how many reference points are within radius_m.
+
+    Uses chunked queries to keep memory bounded when there are many ref points
+    (e.g. 10k+ commercial POIs).
+    """
+    if len(ref_lats) == 0:
+        return np.zeros(len(query_lats), dtype=np.int32)
+
+    qx = query_lats * _LAT_M
+    qy = query_lngs * _LNG_M
+    rx = ref_lats * _LAT_M
+    ry = ref_lngs * _LNG_M
+
+    counts = np.zeros(len(qx), dtype=np.int32)
+    for i in range(0, len(qx), batch_size):
+        bqx = qx[i : i + batch_size]
+        bqy = qy[i : i + batch_size]
+        dx = bqx[:, None] - rx[None, :]   # (chunk, N_ref)
+        dy = bqy[:, None] - ry[None, :]
+        dists = np.sqrt(dx * dx + dy * dy)
+        counts[i : i + batch_size] = (dists <= radius_m).sum(axis=1)
+    return counts
+
+
 def _decay(distances: np.ndarray, max_dist: float) -> np.ndarray:
     """Linear decay: 1 at distance 0, 0 at max_dist."""
     return np.clip(1.0 - distances / max_dist, 0.0, 1.0)
@@ -207,8 +239,6 @@ class PopulationFactor(SuitabilityFactor):
 
     def score_batch(self, lats: np.ndarray, lngs: np.ndarray) -> np.ndarray:
         self._ensure_ready()
-        # For each hex, find nearest DA centroid and use its density
-        dists = _min_distances_m(lats, lngs, self._centroids_lat, self._centroids_lng)
         # Find index of nearest DA for each hex
         qx = lats * _LAT_M
         qy = lngs * _LNG_M
@@ -237,7 +267,7 @@ class _OverpassProximityFactor(SuitabilityFactor):
 
     _query: str = ""
     _max_dist_m: float = 2000.0
-    _extract: str = "points"  # "points" or "line_samples"
+    _extract: str = "points"  # "points", "line_samples", or "centers"
     _sample_interval_m: float = 100.0
 
     _ref_lats: np.ndarray
@@ -254,6 +284,17 @@ class _OverpassProximityFactor(SuitabilityFactor):
                 if elem.get("type") == "node" and "lat" in elem and "lon" in elem:
                     lats.append(elem["lat"])
                     lngs.append(elem["lon"])
+            elif self._extract == "centers":
+                # Nodes have lat/lon directly; ways/relations get a "center"
+                # field when queried with `out center;`
+                if elem.get("type") == "node" and "lat" in elem and "lon" in elem:
+                    lats.append(elem["lat"])
+                    lngs.append(elem["lon"])
+                elif elem.get("center"):
+                    c = elem["center"]
+                    if "lat" in c and "lon" in c:
+                        lats.append(c["lat"])
+                        lngs.append(c["lon"])
             elif self._extract == "line_samples":
                 if elem.get("type") == "way" and "geometry" in elem:
                     pts = elem["geometry"]
@@ -277,12 +318,38 @@ class _OverpassProximityFactor(SuitabilityFactor):
         self._ref_lngs = np.array(lngs)
         self._ready = True
 
-    _last_distances: np.ndarray | None = None
+    # Scoring mode: "proximity" = distance-to-nearest decay (default),
+    #               "density"   = count-within-radius log normalization
+    _scoring: str = "proximity"
+    # Default density scale (POIs at which score = 1.0).
+    # Only used when _scoring == "density".  Overridden per-factor.
+    _density_scale: float = 20.0
 
-    def score_batch(self, lats: np.ndarray, lngs: np.ndarray) -> np.ndarray:
+    _last_distances: np.ndarray | None = None
+    _last_counts: np.ndarray | None = None
+
+    def score_batch(
+        self,
+        lats: np.ndarray,
+        lngs: np.ndarray,
+        density_scale: float | None = None,
+    ) -> np.ndarray:
         self._ensure_ready()
         dists = _min_distances_m(lats, lngs, self._ref_lats, self._ref_lngs)
         self._last_distances = dists  # cache for hex grid export
+
+        if self._scoring == "density":
+            counts = _count_within_radius_m(
+                lats, lngs, self._ref_lats, self._ref_lngs, self._max_dist_m,
+            )
+            self._last_counts = counts
+            scale = density_scale if density_scale is not None else self._density_scale
+            # Log normalization: smooth curve, handles large variance in counts
+            return np.clip(
+                np.log1p(counts.astype(np.float64)) / np.log1p(scale),
+                0.0, 1.0,
+            )
+
         return _decay(dists, self._max_dist_m)
 
 
@@ -340,6 +407,72 @@ out body;
 """
 
 
+class CommercialFactor(_OverpassProximityFactor):
+    """Density of shops, restaurants, cafes, and services."""
+
+    name = "Commercial & Retail"
+    key = "commercial"
+    description = "Density of shops, restaurants, and services within range"
+    _max_dist_m = 800.0
+    _extract = "centers"
+    _scoring = "density"
+    _density_scale = 30.0  # 30 POIs within 800m = score 1.0
+    _query = f"""
+[out:json][timeout:120];
+(
+  node["shop"]({_BBOX_STR});
+  way["shop"]({_BBOX_STR});
+  node["amenity"~"^(restaurant|cafe|fast_food|bar|bank|pharmacy|marketplace|clinic|dentist)$"]({_BBOX_STR});
+  way["amenity"~"^(restaurant|cafe|fast_food|bar|bank|pharmacy|marketplace|clinic|dentist)$"]({_BBOX_STR});
+);
+out center;
+"""
+
+
+class EducationFactor(_OverpassProximityFactor):
+    """Density of schools, universities, colleges, and libraries."""
+
+    name = "Education & Institutional"
+    key = "education"
+    description = "Density of schools, universities, colleges, and libraries within range"
+    _max_dist_m = 1500.0
+    _extract = "centers"
+    _scoring = "density"
+    _density_scale = 5.0  # 5 institutions within 1500m = score 1.0
+    _query = f"""
+[out:json][timeout:60];
+(
+  node["amenity"~"^(university|college|school|library)$"]({_BBOX_STR});
+  way["amenity"~"^(university|college|school|library)$"]({_BBOX_STR});
+  relation["amenity"~"^(university|college|school|library)$"]({_BBOX_STR});
+);
+out center;
+"""
+
+
+class RecreationFactor(_OverpassProximityFactor):
+    """Density of parks, recreation centres, sports facilities, and pools."""
+
+    name = "Parks & Recreation"
+    key = "recreation"
+    description = "Density of parks, rec centres, and sports facilities within range"
+    _max_dist_m = 1000.0
+    _extract = "centers"
+    _scoring = "density"
+    _density_scale = 8.0  # 8 parks/facilities within 1000m = score 1.0
+    _query = f"""
+[out:json][timeout:90];
+(
+  node["leisure"~"^(park|sports_centre|fitness_centre|swimming_pool|playground)$"]({_BBOX_STR});
+  way["leisure"~"^(park|sports_centre|fitness_centre|swimming_pool|playground)$"]({_BBOX_STR});
+  relation["leisure"="park"]({_BBOX_STR});
+  node["amenity"="community_centre"]({_BBOX_STR});
+  way["amenity"="community_centre"]({_BBOX_STR});
+);
+out center;
+"""
+
+
 # ---------------------------------------------------------------------------
 # Geometry helper
 # ---------------------------------------------------------------------------
@@ -374,6 +507,9 @@ class SuitabilityEngine:
         LRTProximityFactor,
         BikeInfraFactor,
         TransitAccessFactor,
+        CommercialFactor,
+        EducationFactor,
+        RecreationFactor,
     ]
 
     def __init__(self, resolution: int | None = None):
@@ -408,9 +544,10 @@ class SuitabilityEngine:
         lats = np.array([c[0] for c in centroids])
         lngs = np.array([c[1] for c in centroids])
 
-        # 3. Compute each factor's scores (+ raw distances for proximity factors)
+        # 3. Compute each factor's scores (+ raw distances/counts for frontend)
         factor_scores: dict[str, np.ndarray] = {}
         factor_distances: dict[str, np.ndarray] = {}  # raw metres for proximity factors
+        factor_counts: dict[str, np.ndarray] = {}     # raw POI counts for density factors
         any_failed = False
         for factor in self.factors:
             ft = time.time()
@@ -418,9 +555,12 @@ class SuitabilityEngine:
                 factor._ensure_ready()
                 scores = factor.score_batch(lats, lngs)
                 factor_scores[factor.key] = scores
-                # Cache raw distances if this is a proximity factor
-                if isinstance(factor, _OverpassProximityFactor) and factor._last_distances is not None:
-                    factor_distances[factor.key] = factor._last_distances
+                # Cache raw distances / counts for hex grid export
+                if isinstance(factor, _OverpassProximityFactor):
+                    if factor._last_distances is not None:
+                        factor_distances[factor.key] = factor._last_distances
+                    if factor._last_counts is not None:
+                        factor_counts[factor.key] = factor._last_counts
                 print(f"[Planner]   {factor.name}: {time.time()-ft:.1f}s "
                       f"(mean={scores.mean():.3f}, max={scores.max():.3f})")
             except Exception as exc:
@@ -443,6 +583,10 @@ class SuitabilityEngine:
             # so the frontend can recompute scores with custom decay radii
             for key, dists in factor_distances.items():
                 props[f"{key}_dist"] = round(float(dists[i]), 1)
+            # Store raw POI counts for density-based factors so the
+            # frontend can recompute with custom density scales
+            for key, counts in factor_counts.items():
+                props[f"{key}_count"] = int(counts[i])
 
             features.append({
                 "type": "Feature",
@@ -486,11 +630,19 @@ class OptimizeConfig:
     # Network connectivity — penalises being too far from any existing station
     connectivity_radius: float = 2000.0  # metres — beyond this, penalty kicks in
     connectivity_strength: float = 0.6   # 0-1 (0 = no penalty, 1 = full)
-    # Per-factor decay radii (metres) — controls how far each factor's influence extends
+    # Per-factor decay radii (metres) — controls how far each proximity factor's
+    # influence extends.  Not used for density-scored factors (commercial, etc.).
     decay_radii: dict[str, float] = field(default_factory=lambda: {
         "lrt": 2000.0,
         "bike_infra": 1000.0,
         "transit": 800.0,
+    })
+    # Density scales — for density-scored POI factors, the POI count at which
+    # the score reaches 1.0 (log normalization).
+    density_scales: dict[str, float] = field(default_factory=lambda: {
+        "commercial": 30.0,
+        "education": 5.0,
+        "recreation": 8.0,
     })
     # Factor weights (0-1)
     weights: dict[str, float] = field(default_factory=lambda: {
@@ -498,6 +650,9 @@ class OptimizeConfig:
         "lrt": 0.5,
         "bike_infra": 0.5,
         "transit": 0.4,
+        "commercial": 0.6,
+        "education": 0.4,
+        "recreation": 0.3,
     })
     # Existing stations (optimizer places new stations around these)
     existing_stations: list[dict] = field(default_factory=list)  # [{lat, lng, capacity}]
@@ -526,7 +681,7 @@ def _compute_base_suitability(
     features: list[dict],
     config: OptimizeConfig,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Compute per-hex suitability from weights + decay radii, plus centroids.
+    """Compute per-hex suitability from weights + decay/density config, plus centroids.
 
     Returns (suitability, centroids_lat, centroids_lng) — all length-n arrays.
     """
@@ -534,18 +689,27 @@ def _compute_base_suitability(
     weights = config.weights
     total_weight = sum(weights.values()) or 1.0
     decay_radii = config.decay_radii
+    density_scales = config.density_scales
 
     suitability = np.zeros(n)
     for i, feat in enumerate(features):
         props = feat["properties"]
         score = 0.0
         for key, w in weights.items():
+            count_key = f"{key}_count"
             dist_key = f"{key}_dist"
-            if key in decay_radii and dist_key in props:
+            if key in density_scales and count_key in props:
+                # Density-scored factor (POIs): log normalization of count
+                count = props[count_key]
+                scale = density_scales[key]
+                factor_score = min(1.0, math.log1p(count) / math.log1p(scale)) if scale > 0 else 0.0
+            elif key in decay_radii and dist_key in props:
+                # Proximity-scored factor: linear decay from nearest
                 dist = props[dist_key]
                 radius = decay_radii[key]
                 factor_score = max(0.0, 1.0 - dist / radius) if radius > 0 else 0.0
             else:
+                # Direct score (e.g. population)
                 factor_score = props.get(key, 0.0)
             score += w * factor_score
         suitability[i] = score / total_weight
@@ -620,7 +784,6 @@ def _solve_mclp_batch(
     distance matrix and pairwise constraint count while preserving quality
     (the solver is only picking ``budget`` from the pool).
     """
-    n = len(features)
     threshold = 0.05
 
     # ---- Pre-filter candidates (top MAX_CANDIDATES by suitability) --------
@@ -836,7 +999,7 @@ def step_greedy_one(
 
     return PlannedStation(
         id=f"auto_{uuid.uuid4().hex[:8]}",
-        name=f"Station (step)",
+        name="Station (step)",
         lat=lat,
         lng=lng,
         capacity=cap,
@@ -933,14 +1096,6 @@ def optimize_network(
     stations = size_capacity(stations, config)
 
     # 5. Compute coverage statistics
-    # Recompute final suitability including all placed + existing stations
-    all_final = list(config.existing_stations or []) + [
-        {"lat": s.lat, "lng": s.lng, "capacity": s.capacity} for s in stations
-    ]
-    final_suit = _apply_station_modifiers(
-        base_suitability, centroids_lat, centroids_lng, all_final, config
-    )
-
     demand_mask = base_suitability > 0.01
     demand_idx = np.where(demand_mask)[0]
     nd = len(demand_idx)
@@ -1029,7 +1184,6 @@ def size_capacity(
     # Total docks ≈ total_bikes / target_fill + headroom
     fill = max(0.1, min(0.9, config.target_fill_pct))
     total_docks_target = int(config.total_bikes / fill)
-    avg_docks = total_docks_target / max(n, 1)
 
     capacities = np.zeros(n, dtype=int)
     for i in range(n):
@@ -1043,7 +1197,6 @@ def size_capacity(
 
     # --- Step 2: Distribute bikes proportional to capacity ---
     total_cap = int(capacities.sum())
-    remaining_bikes = config.total_bikes
 
     for i, station in enumerate(stations):
         station.capacity = int(capacities[i])

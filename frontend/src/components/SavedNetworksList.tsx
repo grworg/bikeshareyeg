@@ -10,9 +10,10 @@ import {
 
 interface SavedNetworksListProps {
   onLoad: (network: SavedNetwork) => void;
+  activeNetworkId?: string | null;
 }
 
-export default function SavedNetworksList({ onLoad }: SavedNetworksListProps) {
+export default function SavedNetworksList({ onLoad, activeNetworkId }: SavedNetworksListProps) {
   const [networks, setNetworks] = useState<SavedNetwork[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -55,13 +56,18 @@ export default function SavedNetworksList({ onLoad }: SavedNetworksListProps) {
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto">
-          {networks.map((n) => (
+          {networks.map((n) => {
+            const isActive = n.id === activeNetworkId;
+            return (
             <div
               key={n.id}
-              className="px-5 py-3 border-b border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors"
+              className={`px-5 py-3 border-b border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors ${isActive ? "bg-[#e8f0fe]/40" : ""}`}
             >
               {/* Name row */}
               <div className="flex items-start gap-2">
+                {isActive && (
+                  <div className="w-2 h-2 rounded-full bg-[#34a853] shrink-0 mt-1.5" title="Active network" />
+                )}
                 {editingId === n.id ? (
                   <form
                     className="flex-1 flex gap-1.5"
@@ -141,7 +147,8 @@ export default function SavedNetworksList({ onLoad }: SavedNetworksListProps) {
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

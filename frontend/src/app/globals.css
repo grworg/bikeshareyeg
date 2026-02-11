@@ -116,3 +116,15 @@ body {
   font-weight: 600;
   color: #202124;
 }
+
+/* ---- Animations ---- */
+
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.95) translateY(4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* safe-area for devices with bottom notch */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}

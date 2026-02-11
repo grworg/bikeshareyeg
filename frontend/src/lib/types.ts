@@ -1,5 +1,7 @@
 /** Shared type definitions — mirrors backend Pydantic models. */
 
+export type AppMode = "routing" | "designer" | "saved" | "docs";
+
 export interface LatLng {
   lat: number;
   lng: number;
@@ -82,7 +84,7 @@ export interface RouteOption {
 // Overlays
 // ---------------------------------------------------------------------------
 
-export type OverlayKey = "lrt" | "bike" | "bus" | "population" | "docks";
+export type OverlayKey = "lrt" | "bike" | "bus" | "population" | "docks" | "commercial" | "education" | "recreation";
 
 // ---------------------------------------------------------------------------
 // Planner (auto-optimizer)
@@ -93,12 +95,23 @@ export interface PlannerWeights {
   lrt: number;
   bike_infra: number;
   transit: number;
+  commercial: number;
+  education: number;
+  recreation: number;
 }
 
 export interface PlannerDecayRadii {
   lrt: number;        // metres
   bike_infra: number;
   transit: number;
+}
+
+/** Density scales for POI factors — the POI count at which score = 1.0.
+ *  Uses log normalization: score = min(1, log(1+count) / log(1+scale)). */
+export interface PlannerDensityScales {
+  commercial: number;
+  education: number;
+  recreation: number;
 }
 
 export type PlannerAlgorithm = "iterative_mclp" | "greedy";
@@ -141,14 +154,102 @@ export interface PlannerFactorInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Build Log — audit trail of how a network was constructed
+// ---------------------------------------------------------------------------
+
+/** Snapshot of planner parameters at a given moment. */
+export interface BuildLogParams {
+  weights: PlannerWeights;
+  decayRadii: PlannerDecayRadii;
+  densityScales: PlannerDensityScales;
+  config: PlannerConfig;
+}
+
+export interface BuildLogSeedLRT {
+  action: "seed_lrt";
+  timestamp: string;
+  stationsAdded: string[];  // IDs of stations created
+}
+
+export interface BuildLogManualPlace {
+  action: "manual_place";
+  timestamp: string;
+  stationId: string;
+  lat: number;
+  lng: number;
+}
+
+export interface BuildLogStep {
+  action: "step";
+  timestamp: string;
+  stationId: string;
+  params: BuildLogParams;
+  resultLat: number;
+  resultLng: number;
+  resultCapacity: number;
+}
+
+export interface BuildLogGenerateAll {
+  action: "generate_all";
+  timestamp: string;
+  stationsAdded: string[];  // IDs of stations created
+  params: BuildLogParams;
+  coverage: PlannerCoverage;
+  solveTimeS: number;
+}
+
+export interface BuildLogApplyGenerated {
+  action: "apply_generated";
+  timestamp: string;
+  stationsAdded: string[];  // IDs of stations applied
+}
+
+export interface BuildLogDeleteStation {
+  action: "delete_station";
+  timestamp: string;
+  stationId: string;
+  stationName: string;
+}
+
+export interface BuildLogMoveStation {
+  action: "move_station";
+  timestamp: string;
+  stationId: string;
+  fromLat: number;
+  fromLng: number;
+  toLat: number;
+  toLng: number;
+}
+
+export interface BuildLogClearAll {
+  action: "clear_all";
+  timestamp: string;
+  stationsRemoved: number;
+}
+
+export type BuildLogEntry =
+  | BuildLogSeedLRT
+  | BuildLogManualPlace
+  | BuildLogStep
+  | BuildLogGenerateAll
+  | BuildLogApplyGenerated
+  | BuildLogDeleteStation
+  | BuildLogMoveStation
+  | BuildLogClearAll;
+
+// ---------------------------------------------------------------------------
 // Saved Networks (localStorage persistence)
 // ---------------------------------------------------------------------------
 
 export interface SavedNetwork {
   /** Schema version — bump when the shape changes so we can migrate. */
-  version: 1;
+  version: 1 | 2;
   /** User-chosen name for the draft. */
   name: string;
+  /** Optional description of the network. */
+  description?: string;
+  /** Optional free-text author name. */
+  author?: string;
   /** Unique id (crypto.randomUUID). */
   id: string;
   /** ISO-8601 timestamp of when the draft was saved. */
@@ -157,10 +258,14 @@ export interface SavedNetwork {
   stations: BikeStation[];
   /** Algorithm configuration (fleet size, spacing, etc.). */
   plannerConfig: PlannerConfig;
-  /** Goal weights (population, lrt, bike_infra, transit). */
+  /** Factor weights (population, lrt, bike_infra, transit, etc.). */
   plannerWeights: PlannerWeights;
-  /** Per-factor decay radii. */
+  /** Per-factor decay radii (proximity factors). */
   decayRadii: PlannerDecayRadii;
+  /** Per-factor density scales (POI factors). */
+  densityScales?: PlannerDensityScales;
+  /** Ordered audit log of every action that built this network. */
+  buildLog?: BuildLogEntry[];
 }
 
 // ---------------------------------------------------------------------------

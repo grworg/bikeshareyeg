@@ -11,7 +11,7 @@ import {
   COLORS,
   type MapStyleKey,
 } from "@/lib/constants";
-import type { BikeStation, RouteOption, LatLng, OverlayKey, PlannerWeights, PlannerDecayRadii, PlannerConfig } from "@/lib/types";
+import type { BikeStation, RouteOption, LatLng, OverlayKey, PlannerWeights, PlannerDecayRadii, PlannerDensityScales, PlannerConfig } from "@/lib/types";
 import {
   OVERLAY_COLORS,
   OVERLAY_WIDTHS,
@@ -55,6 +55,7 @@ interface DeckMapProps {
   suitabilityData?: GeoJSON.FeatureCollection | null;
   suitabilityWeights?: PlannerWeights | null;
   suitabilityDecayRadii?: PlannerDecayRadii | null;
+  suitabilityDensityScales?: PlannerDensityScales | null;
   suitabilityConfig?: PlannerConfig | null;
   showSuitability?: boolean;
 }
@@ -459,6 +460,7 @@ export default function DeckMap({
   suitabilityData = null,
   suitabilityWeights = null,
   suitabilityDecayRadii = null,
+  suitabilityDensityScales = null,
   suitabilityConfig = null,
   showSuitability = false,
 }: DeckMapProps) {
@@ -623,17 +625,41 @@ export default function DeckMap({
 
     // ── Suitability hex grid (planner) ──
     if (showSuitability && suitabilityData && suitabilityWeights) {
-      const wPop = suitabilityWeights.population / 100;
-      const wLrt = suitabilityWeights.lrt / 100;
-      const wBike = suitabilityWeights.bike_infra / 100;
-      const wTransit = suitabilityWeights.transit / 100;
-      const wTotal = wPop + wLrt + wBike + wTransit || 1;
-      const _proxFactors = proximityFactors; // capture for closure
-      // Decay radii for real-time recomputation from raw distances
+      const _sw = suitabilityWeights;
       const _dr = suitabilityDecayRadii;
-      const drLrt = _dr?.lrt ?? 2000;
-      const drBike = _dr?.bike_infra ?? 1000;
-      const drTransit = _dr?.transit ?? 800;
+      const _ds = suitabilityDensityScales;
+
+      // Proximity-scored factors (linear decay from nearest)
+      const PROXIMITY_KEYS = ["lrt", "bike_infra", "transit"] as const;
+      const DEFAULT_RADII: Record<string, number> = { lrt: 2000, bike_infra: 200, transit: 800 };
+
+      // Density-scored factors (POI count, log normalization)
+      const DENSITY_KEYS = ["commercial", "education", "recreation"] as const;
+      const DEFAULT_SCALES: Record<string, number> = { commercial: 30, education: 5, recreation: 8 };
+
+      // Normalised weights (0-1) for each factor
+      const wMap: Record<string, number> = {};
+      let wTotal = 0;
+      for (const key of Object.keys(_sw) as (keyof typeof _sw)[]) {
+        const w = _sw[key] / 100;
+        wMap[key] = w;
+        wTotal += w;
+      }
+      if (wTotal === 0) wTotal = 1;
+
+      // Resolved decay radii (proximity factors only)
+      const drMap: Record<string, number> = {};
+      for (const key of PROXIMITY_KEYS) {
+        drMap[key] = _dr?.[key as keyof typeof _dr] ?? DEFAULT_RADII[key] ?? 1000;
+      }
+
+      // Resolved density scales (POI factors)
+      const dsMap: Record<string, number> = {};
+      for (const key of DENSITY_KEYS) {
+        dsMap[key] = _ds?.[key as keyof typeof _ds] ?? DEFAULT_SCALES[key] ?? 10;
+      }
+
+      const _proxFactors = proximityFactors; // capture for closure
 
       result.push(
         new GeoJsonLayer({
@@ -647,20 +673,36 @@ export default function DeckMap({
           getLineWidth: 0.5,
           getFillColor: (f: any) => {
             const p = f.properties || {};
-            // For proximity factors, recompute score from raw distance if available
-            const lrtScore = p.lrt_dist != null ? Math.max(0, 1 - p.lrt_dist / drLrt) : (p.lrt ?? 0);
-            const bikeScore = p.bike_infra_dist != null ? Math.max(0, 1 - p.bike_infra_dist / drBike) : (p.bike_infra ?? 0);
-            const transitScore = p.transit_dist != null ? Math.max(0, 1 - p.transit_dist / drTransit) : (p.transit ?? 0);
-            let score =
-              (wPop * (p.population ?? 0) +
-                wLrt * lrtScore +
-                wBike * bikeScore +
-                wTransit * transitScore) /
-              wTotal;
+            let score = 0;
+            for (const key of Object.keys(wMap)) {
+              const w = wMap[key];
+              if (w === 0) continue;
+
+              let factorScore: number;
+              const countKey = `${key}_count`;
+              const distKey = `${key}_dist`;
+
+              if (countKey in p && key in dsMap) {
+                // Density-scored factor: log normalization of POI count
+                const count: number = p[countKey];
+                const scale = dsMap[key];
+                factorScore = Math.min(1, Math.log1p(count) / Math.log1p(scale));
+              } else if (distKey in p && key in drMap) {
+                // Proximity-scored factor: linear decay from nearest
+                factorScore = Math.max(0, 1 - p[distKey] / drMap[key]);
+              } else {
+                // Direct score (e.g. population)
+                factorScore = p[key] ?? 0;
+              }
+              score += w * factorScore;
+            }
+            score /= wTotal;
+
             // Apply proximity discount from nearby existing stations
             if (_proxFactors && p.h3) {
               score *= _proxFactors[p.h3] ?? 1.0;
             }
+
             // 0 → transparent, 1 → vivid blue
             if (score < 0.05) return [0, 0, 0, 0]; // invisible
             if (score < 0.15) return [227, 242, 253, 60];   // very light blue
@@ -677,14 +719,37 @@ export default function DeckMap({
           parameters: { depthWriteEnabled: false },
           updateTriggers: {
             getFillColor: [
-              suitabilityWeights.population, suitabilityWeights.lrt,
-              suitabilityWeights.bike_infra, suitabilityWeights.transit,
-              drLrt, drBike, drTransit,  // re-render when reach changes
-              proximityFactors, // re-render when stations move
+              _sw.population, _sw.lrt, _sw.bike_infra, _sw.transit,
+              _sw.commercial, _sw.education, _sw.recreation,
+              drMap.lrt, drMap.bike_infra, drMap.transit,
+              dsMap.commercial, dsMap.education, dsMap.recreation,
+              proximityFactors,
             ],
           },
         }),
       );
+    }
+
+    // ── POI overlay point layers (rendered as small dots) ──
+    const poiOverlays: OverlayKey[] = ["commercial", "education", "recreation"];
+    for (const key of poiOverlays) {
+      if (activeOverlays.has(key) && overlayData[key]) {
+        result.push(
+          new ScatterplotLayer({
+            id: `overlay-${key}`,
+            data: (overlayData[key] as GeoJSON.FeatureCollection).features.filter(
+              (f): f is GeoJSON.Feature<GeoJSON.Point> => f.geometry.type === "Point",
+            ),
+            getPosition: (f: GeoJSON.Feature<GeoJSON.Point>) => f.geometry.coordinates as [number, number],
+            getFillColor: OVERLAY_COLORS[key],
+            getRadius: 4,
+            radiusMinPixels: 3,
+            radiusMaxPixels: 8,
+            pickable: true,
+            parameters: { depthWriteEnabled: false },
+          }),
+        );
+      }
     }
 
     // ── Transit / cycling overlay line layers ──
@@ -808,7 +873,7 @@ export default function DeckMap({
     }
 
     return result;
-  }, [stations, selectedRoute, designerMode, selectedStationId, overlayData, activeOverlays, showSuitability, suitabilityData, suitabilityWeights, suitabilityDecayRadii, proximityFactors]);
+  }, [stations, selectedRoute, designerMode, selectedStationId, overlayData, activeOverlays, showSuitability, suitabilityData, suitabilityWeights, suitabilityDecayRadii, suitabilityDensityScales, proximityFactors]);
 
   // ---- Hover tooltip (overlays only — hex & station popups are click-based) ----
   const getTooltip = useCallback(
@@ -839,6 +904,27 @@ export default function DeckMap({
               color: "#202124",
               borderRadius: "8px",
               padding: "10px 14px",
+              boxShadow: "0 1px 3px 0 rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15)",
+              border: "none",
+            },
+          };
+        }
+
+        // POI overlay tooltips — show name + category
+        const poiLayers = ["overlay-commercial", "overlay-education", "overlay-recreation"];
+        if (poiLayers.includes(info.layer.id)) {
+          const name = props.name || "";
+          const category = props.shop || props.amenity || props.leisure || "";
+          const label = name || (category ? category.replace(/_/g, " ") : info.layer.id.replace("overlay-", ""));
+          const subtitle = name && category ? category.replace(/_/g, " ") : props.layer || "";
+          return {
+            html: `<div style="font-family:Roboto,sans-serif;font-size:13px;font-weight:500">${label}</div>
+                   ${subtitle ? `<div style="font-size:11px;color:#5f6368;margin-top:2px;text-transform:capitalize">${subtitle}</div>` : ""}`,
+            style: {
+              backgroundColor: "#fff",
+              color: "#202124",
+              borderRadius: "8px",
+              padding: "8px 12px",
               boxShadow: "0 1px 3px 0 rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15)",
               border: "none",
             },
@@ -887,38 +973,72 @@ export default function DeckMap({
   const buildHexPopupHtml = useCallback(
     (properties: any): string => {
       const p = properties;
-      const wPop = (suitabilityWeights?.population ?? 0) / 100;
-      const wLrt = (suitabilityWeights?.lrt ?? 0) / 100;
-      const wBike = (suitabilityWeights?.bike_infra ?? 0) / 100;
-      const wTransit = (suitabilityWeights?.transit ?? 0) / 100;
-      const wTotal = wPop + wLrt + wBike + wTransit || 1;
-      const drLrt = suitabilityDecayRadii?.lrt ?? 2000;
-      const drBike = suitabilityDecayRadii?.bike_infra ?? 1000;
-      const drTransit = suitabilityDecayRadii?.transit ?? 800;
-      const lrtScore = p.lrt_dist != null ? Math.max(0, 1 - p.lrt_dist / drLrt) : (p.lrt ?? 0);
-      const bikeScore = p.bike_infra_dist != null ? Math.max(0, 1 - p.bike_infra_dist / drBike) : (p.bike_infra ?? 0);
-      const transitScore = p.transit_dist != null ? Math.max(0, 1 - p.transit_dist / drTransit) : (p.transit ?? 0);
-      const rawScore = (
-        wPop * (p.population ?? 0) +
-        wLrt * lrtScore +
-        wBike * bikeScore +
-        wTransit * transitScore
-      ) / wTotal;
+      const _sw = suitabilityWeights;
+      const _dr = suitabilityDecayRadii;
+      const _ds = suitabilityDensityScales;
+      const DEFAULT_RADII: Record<string, number> = { lrt: 2000, bike_infra: 200, transit: 800 };
+      const DEFAULT_SCALES: Record<string, number> = { commercial: 30, education: 5, recreation: 8 };
+      const FACTOR_LABELS: Record<string, string> = {
+        population: "Population",
+        commercial: "Commercial",
+        education: "Education",
+        recreation: "Recreation",
+        lrt: "LRT",
+        bike_infra: "Bike infra",
+        transit: "Transit",
+      };
+
+      // Compute per-factor scores and weighted total
+      let wTotal = 0;
+      let rawScore = 0;
+      const factorScores: Record<string, number> = {};
+      const factorExtras: Record<string, string> = {};
+
+      for (const key of Object.keys(FACTOR_LABELS)) {
+        const w = (_sw?.[key as keyof typeof _sw] ?? 0) / 100;
+        wTotal += w;
+        const countKey = `${key}_count`;
+        const distKey = `${key}_dist`;
+        let fs: number;
+
+        if (countKey in p && key in DEFAULT_SCALES) {
+          // Density-scored factor
+          const count: number = p[countKey];
+          const scale = _ds?.[key as keyof typeof _ds] ?? DEFAULT_SCALES[key];
+          fs = Math.min(1, Math.log1p(count) / Math.log1p(scale));
+          factorExtras[key] = `${count} nearby`;
+        } else if (distKey in p && key in DEFAULT_RADII) {
+          // Proximity-scored factor
+          const dr = _dr?.[key as keyof typeof _dr] ?? DEFAULT_RADII[key];
+          fs = dr ? Math.max(0, 1 - p[distKey] / dr) : 0;
+          factorExtras[key] = `${Math.round(p[distKey])}m`;
+        } else {
+          fs = p[key] ?? 0;
+        }
+        factorScores[key] = fs;
+        rawScore += w * fs;
+      }
+      if (wTotal === 0) wTotal = 1;
+      rawScore /= wTotal;
+
       const proxFactor = proximityFactors?.[p.h3] ?? 1.0;
       const adjustedScore = rawScore * proxFactor;
       const pct = (n: number) => Math.round(n * 100);
       const proxLine = proxFactor < 0.99
         ? `<br/>Station modifier: <b style="color:${proxFactor < 0.7 ? '#e53935' : '#fb8c00'}">×${proxFactor.toFixed(2)}</b>`
         : "";
+      const lines = Object.entries(FACTOR_LABELS)
+        .map(([key, label]) => {
+          const extra = factorExtras[key] ? ` <span style="color:#9e9e9e">(${factorExtras[key]})</span>` : "";
+          return `${label}: ${pct(factorScores[key])}%${extra}`;
+        })
+        .join("<br/>");
       return `<div style="font-size:13px;font-weight:600;margin-bottom:4px">Suitability: ${pct(adjustedScore)}%</div>
               <div style="font-size:11px;color:#5f6368;line-height:1.6">
-                Population: ${pct(p.population ?? 0)}%<br/>
-                LRT: ${pct(lrtScore)}%<br/>
-                Bike infra: ${pct(bikeScore)}%<br/>
-                Transit: ${pct(transitScore)}%${proxLine}
+                ${lines}${proxLine}
               </div>`;
     },
-    [suitabilityWeights, suitabilityDecayRadii, proximityFactors],
+    [suitabilityWeights, suitabilityDecayRadii, suitabilityDensityScales, proximityFactors],
   );
 
   // ---- Click handler (left-button only) ----

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { BikeStation, PlannerWeights, PlannerConfig, PlannerCoverage } from "@/lib/types";
+import type { BikeStation, PlannerWeights, PlannerDecayRadii, PlannerDensityScales, PlannerConfig, PlannerCoverage } from "@/lib/types";
 import PlannerControls from "@/components/PlannerControls";
 
 // ---------------------------------------------------------------------------
@@ -30,6 +30,10 @@ interface DesignerPanelProps {
   onTogglePlannerExpanded: () => void;
   plannerWeights: PlannerWeights;
   onUpdatePlannerWeights: (w: PlannerWeights) => void;
+  decayRadii: PlannerDecayRadii;
+  onUpdateDecayRadii: (r: PlannerDecayRadii) => void;
+  densityScales: PlannerDensityScales;
+  onUpdateDensityScales: (d: PlannerDensityScales) => void;
   plannerConfig: PlannerConfig;
   onUpdatePlannerConfig: (c: PlannerConfig) => void;
   showSuitability: boolean;
@@ -67,6 +71,10 @@ export default function DesignerPanel({
   onTogglePlannerExpanded,
   plannerWeights,
   onUpdatePlannerWeights,
+  decayRadii,
+  onUpdateDecayRadii,
+  densityScales,
+  onUpdateDensityScales,
   plannerConfig,
   onUpdatePlannerConfig,
   showSuitability,
@@ -220,8 +228,10 @@ export default function DesignerPanel({
         onToggleExpanded={onTogglePlannerExpanded}
         weights={plannerWeights}
         onUpdateWeights={onUpdatePlannerWeights}
-        decayRadii={{ lrt: 2000, bike_infra: 1000, transit: 800 }}
-        onUpdateDecayRadii={() => {}}
+        decayRadii={decayRadii}
+        onUpdateDecayRadii={onUpdateDecayRadii}
+        densityScales={densityScales}
+        onUpdateDensityScales={onUpdateDensityScales}
         config={plannerConfig}
         onUpdateConfig={onUpdatePlannerConfig}
         showSuitability={showSuitability}

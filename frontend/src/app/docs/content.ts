@@ -148,7 +148,7 @@ ${p(`You can set a <strong>departure time</strong> to get schedule-aware transit
       title: "Designing Your First Network",
       content: `
 ${img("/docs/network-designer.png", "Network Designer with suitability heatmap and placed stations", { width: 800, height: 450, caption: "The Network Designer showing suitability heatmap and auto-placed stations" })}
-${p(`Switch to <strong>Network Designer</strong> mode. You'll see the suitability heatmap overlay — a hex grid showing which areas of Edmonton are best suited for bike-share stations based on population density, LRT proximity, bike infrastructure, and transit access.`)}
+${p(`Switch to <strong>Network Designer</strong> mode. You'll see the suitability heatmap overlay \u2014 a hex grid showing which areas of Edmonton are best suited for bike-share stations based on seven factors: population density, commercial activity, education, parks & recreation, LRT proximity, bike infrastructure, and transit access.`)}
 ${p(`To get started quickly:`)}
 <ol class="list-decimal pl-6 space-y-2 my-3">
   <li><strong>Seed LRT stations</strong> — Click "Seed LRT Docks" to automatically place a station at every LRT stop. This gives you a baseline network.</li>
@@ -352,7 +352,7 @@ const optimizationEngine: DocSection = {
       content: `
 ${img("/docs/suitability-hexgrid.png", "Suitability surface close-up showing hex grid with factor breakdown", { width: 800, height: 400, caption: "The suitability surface — click any hex to see its factor breakdown" })}
 ${p(`At the heart of the optimizer is a <strong>suitability surface</strong> — a map of Edmonton divided into hexagonal cells, each scored 0–1 based on how suitable it is for a bike-share station.`)}
-${p(`The surface is computed by combining four factors, each weighted by your preferences:`)}
+${p(`The surface is computed by combining seven factors, each weighted by your preferences:`)}
 <div class="overflow-x-auto my-4">
 <table class="w-full text-sm border-collapse">
   <thead>
@@ -363,14 +363,17 @@ ${p(`The surface is computed by combining four factors, each weighted by your pr
     </tr>
   </thead>
   <tbody class="divide-y divide-gray-100">
-    <tr><td class="py-2 pr-4 font-medium">Population Density</td><td class="py-2 pr-4">2021 Census, Dissemination Areas</td><td class="py-2">Sigmoid normalization (5,000/km² ≈ 0.75)</td></tr>
-    <tr><td class="py-2 pr-4 font-medium">LRT Proximity</td><td class="py-2 pr-4">OpenStreetMap via Overpass API</td><td class="py-2">Linear decay from nearest station (default 2,000m radius)</td></tr>
-    <tr><td class="py-2 pr-4 font-medium">Bike Infrastructure</td><td class="py-2 pr-4">OpenStreetMap via Overpass API</td><td class="py-2">Linear decay from nearest path/cycleway (default 1,000m radius)</td></tr>
-    <tr><td class="py-2 pr-4 font-medium">Transit Access</td><td class="py-2 pr-4">OpenStreetMap via Overpass API</td><td class="py-2">Linear decay from nearest bus stop or LRT station (default 800m radius)</td></tr>
+    <tr><td class="py-2 pr-4 font-medium">Population Density</td><td class="py-2 pr-4">2021 Census, Dissemination Areas</td><td class="py-2">Sigmoid normalization (5,000/km\u00B2 \u2248 0.75)</td></tr>
+    <tr><td class="py-2 pr-4 font-medium">Commercial & Retail</td><td class="py-2 pr-4">OpenStreetMap via Overpass API</td><td class="py-2">Density: count of shops, restaurants, and services within 800m, log-normalized (default scale: 30 POIs = 100%)</td></tr>
+    <tr><td class="py-2 pr-4 font-medium">Education & Institutional</td><td class="py-2 pr-4">OpenStreetMap via Overpass API</td><td class="py-2">Density: count of schools, universities, colleges, and libraries within 1,500m, log-normalized (default scale: 5 POIs = 100%)</td></tr>
+    <tr><td class="py-2 pr-4 font-medium">Parks & Recreation</td><td class="py-2 pr-4">OpenStreetMap via Overpass API</td><td class="py-2">Density: count of parks, rec centres, pools, and sports facilities within 1,000m, log-normalized (default scale: 8 POIs = 100%)</td></tr>
+    <tr><td class="py-2 pr-4 font-medium">LRT Proximity</td><td class="py-2 pr-4">OpenStreetMap via Overpass API</td><td class="py-2">Linear decay from nearest LRT station (default 2,000m)</td></tr>
+    <tr><td class="py-2 pr-4 font-medium">Bike Infrastructure</td><td class="py-2 pr-4">OpenStreetMap via Overpass API</td><td class="py-2">Linear decay from nearest path/cycleway (default 1,000m)</td></tr>
+    <tr><td class="py-2 pr-4 font-medium">Transit Access</td><td class="py-2 pr-4">OpenStreetMap via Overpass API</td><td class="py-2">Linear decay from nearest bus stop or LRT station (default 800m)</td></tr>
   </tbody>
 </table>
 </div>
-${p(`Each factor is scored 0–1 per hex cell, then combined as a weighted average using your configured weights. You can adjust both the <strong>weight</strong> (how much each factor matters) and the <strong>decay radius</strong> (how far each factor's influence extends) in real time. The suitability overlay on the map updates instantly.`)}
+${p(`Each factor is scored 0\u20131 per hex cell, then combined as a weighted average using your configured weights. You can adjust both the <strong>weight</strong> (how much each factor matters) and the <strong>decay radius</strong> (how far each factor\u2019s influence extends) in real time. The suitability overlay on the map updates instantly.`)}
       `,
     },
     {
@@ -517,6 +520,50 @@ ${p(`For the suitability factor, line geometries are sampled at 100m intervals t
       `,
     },
     {
+      id: "commercial-retail",
+      title: "Commercial & Retail POIs",
+      content: `
+${p(`Commercial and retail point-of-interest data comes from <strong>OpenStreetMap</strong> via the Overpass API. The query captures everyday destinations that generate bike-share trips:`)}
+<ul class="list-disc pl-6 space-y-1 my-3">
+  <li><code>shop=*</code> \u2014 all shops (supermarkets, convenience stores, retail)</li>
+  <li><code>amenity=restaurant|cafe|fast_food|bar</code> \u2014 food and drink establishments</li>
+  <li><code>amenity=bank|pharmacy|marketplace|clinic|dentist</code> \u2014 everyday services</li>
+</ul>
+${p(`Both nodes (point POIs) and ways (building footprints) are captured using Overpass <code>out center;</code>, which returns centroid coordinates for polygons. This ensures large stores and malls mapped as building outlines are included.`)}
+${p(`The suitability factor scores each hex by <strong>density</strong> \u2014 how many POIs fall within 800m \u2014 using log normalization. The configurable Density Scale slider sets how many POIs = a perfect score (default 30). This means a cluster of 15 shops scores higher than a single isolated store. Data is permanently cached on disk after the first fetch.`)}
+      `,
+    },
+    {
+      id: "education-institutional",
+      title: "Education & Institutional",
+      content: `
+${p(`Education data comes from <strong>OpenStreetMap</strong> via the Overpass API:`)}
+<ul class="list-disc pl-6 space-y-1 my-3">
+  <li><code>amenity=university</code> \u2014 university campuses (e.g., University of Alberta, MacEwan)</li>
+  <li><code>amenity=college</code> \u2014 colleges (e.g., NAIT, NorQuest)</li>
+  <li><code>amenity=school</code> \u2014 elementary and secondary schools</li>
+  <li><code>amenity=library</code> \u2014 public libraries</li>
+</ul>
+${p(`The query includes nodes, ways, and relations to capture both point-mapped and polygon-mapped institutions (campus boundaries). Universities and colleges are major trip generators with predictable daily peaks, making them high-value locations for bike-share stations.`)}
+${p(`Scoring uses <strong>density</strong>: how many institutions fall within 1,500m, with log normalization (default scale: 5 institutions = 100%). The larger counting radius reflects that campuses have wide catchment areas.`)}
+      `,
+    },
+    {
+      id: "parks-recreation",
+      title: "Parks & Recreation",
+      content: `
+${p(`Parks and recreation facility data comes from <strong>OpenStreetMap</strong> via the Overpass API:`)}
+<ul class="list-disc pl-6 space-y-1 my-3">
+  <li><code>leisure=park</code> \u2014 public parks (including polygon boundaries via relations)</li>
+  <li><code>leisure=sports_centre|fitness_centre|swimming_pool</code> \u2014 sports and fitness facilities</li>
+  <li><code>leisure=playground</code> \u2014 playgrounds</li>
+  <li><code>amenity=community_centre</code> \u2014 community recreation centres</li>
+</ul>
+${p(`Parks are typically mapped as polygon ways or multi-polygon relations in OSM. Using <code>out center;</code> extracts the centroid of each park. Scoring uses <strong>density</strong>: how many facilities fall within 1,000m, with log normalization (default scale: 8 = 100%).`)}
+${p(`These are seasonal and weekend attractors \u2014 particularly valuable for leisure cycling trips and family use of the bike-share network.`)}
+      `,
+    },
+    {
       id: "transit-stops",
       title: "Transit Routes & Stops",
       content: `
@@ -588,7 +635,8 @@ ${p(`BikeShareYEG is a <strong>planning and imagination tool</strong>, not a pro
       title: "Known Gaps & Future Work",
       content: `
 <ul class="list-disc pl-6 space-y-2 my-3">
-  <li><strong>Additional suitability factors</strong> — employment density, points of interest (universities, hospitals, shopping centres), land use zoning, and topography (steep hills reduce cycling appeal).</li>
+  <li><strong>Additional suitability factors</strong> \u2014 employment density (via Edmonton business licences or StatsCan business counts), land use zoning, and topography (steep hills reduce cycling appeal).</li>
+  <li><strong>Visitation-weighted POI scoring</strong> \u2014 the current density scoring counts all POIs equally; integrating foot-traffic or visit-frequency data would better distinguish a busy downtown caf\u00E9 from a rarely visited store.</li>
   <li><strong>Demand modeling</strong> — Trip generation/attraction models using origin-destination surveys or data from comparable cities (e.g., Toronto Bike Share, Mobi Vancouver).</li>
   <li><strong>Rebalancing simulation</strong> — Modeling how bikes flow through the network over a day and where rebalancing trucks need to go.</li>
   <li><strong>Cost estimation</strong> — Infrastructure cost per station, per dock, per bike, plus operating costs.</li>
@@ -660,7 +708,7 @@ ${p(`Key architectural decisions:`)}
   <li><strong><a href="https://numpy.org" target="_blank" rel="noopener" class="text-blue-600 hover:underline">NumPy</a></strong> — Vectorized computation for suitability scoring, distance matrices, and spatial operations. All hex-level operations use batched numpy for performance.</li>
   <li><strong><a href="https://developers.google.com/optimization" target="_blank" rel="noopener" class="text-blue-600 hover:underline">Google OR-Tools</a></strong> — The CP-SAT constraint programming solver powers the MCLP optimization. It handles integer programming with complex constraints (spacing, coverage, budget) efficiently.</li>
   <li><strong><a href="https://h3geo.org" target="_blank" rel="noopener" class="text-blue-600 hover:underline">H3</a></strong> — Uber's hexagonal spatial indexing for the suitability grid.</li>
-  <li><strong>Overpass API</strong> — OpenStreetMap query interface for LRT, bike, and transit infrastructure data.</li>
+  <li><strong>Overpass API</strong> — OpenStreetMap query interface for infrastructure (LRT, bike paths, transit stops) and POI data (commercial, education, recreation). All responses permanently cached on disk.</li>
   <li><strong><a href="https://www.opentripplanner.org" target="_blank" rel="noopener" class="text-blue-600 hover:underline">OpenTripPlanner</a></strong> — Multi-modal transit routing engine (optional; falls back to built-in GTFS parser).</li>
   <li><strong><a href="https://brouter.de" target="_blank" rel="noopener" class="text-blue-600 hover:underline">BRouter</a></strong> — Cycling and walking route computation using OSM data.</li>
 </ul>
@@ -741,7 +789,7 @@ ${p(`Connect to live transit feeds (GTFS-RT) for real-time bus/LRT positions and
 ${p(`Export network designs as shareable URLs or files. Enable collaborative design sessions where multiple people can work on the same network. Publish designs to a public gallery for community voting and discussion.`)}
 
 <h4 class="font-semibold text-base mt-4 mb-2">Additional Suitability Factors</h4>
-${p(`Add employment density, points of interest, university/hospital locations, land use zoning, and topography as factors in the suitability surface.`)}
+${p(`The suitability engine now includes seven factors (population, commercial, education, recreation, LRT, bike infra, transit) with density-based scoring for POI factors. Future additions include employment density (via Edmonton business licences or StatsCan business counts), land use zoning, topography, and visitation-weighted POI scoring.`)}
 
 <h4 class="font-semibold text-base mt-4 mb-2">Equity Analysis</h4>
 ${p(`Overlay income, demographics, and access-to-services data to ensure network designs serve all Edmontonians equitably, not just high-density corridors.`)}
@@ -779,7 +827,7 @@ ${p(`With Edmonton's LRT expansion projects connecting more neighbourhoods to ra
       content: `
 ${p(`BikeShareYEG is an open project. If you're interested in contributing — whether it's code, data, design, or ideas — reach out! Areas where help is especially welcome:`)}
 <ul class="list-disc pl-6 space-y-1 my-3">
-  <li>Additional suitability factors and data sources</li>
+  <li>New suitability factors (employment density, land use, topography) and data sources</li>
   <li>Trip simulation engine</li>
   <li>UI/UX improvements and accessibility</li>
   <li>Testing with real Edmonton cycling data</li>

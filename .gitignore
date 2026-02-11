@@ -24,6 +24,9 @@ data/cache/
 # IDE
 .vscode/
 .idea/
+.cursor/
+.cursorignore
+.cursorrules
 
 # OS
 .DS_Store

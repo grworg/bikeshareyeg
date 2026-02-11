@@ -10,6 +10,8 @@ import type {
   TravelMode,
   OverlayKey,
   PlannerWeights,
+  PlannerDecayRadii,
+  PlannerDensityScales,
   PlannerCoverage,
   PlannerFactorInfo,
 } from "./types";
@@ -193,7 +195,8 @@ export async function runPlannerOptimize(params: {
   proximity_discount_strength: number;
   connectivity_radius: number;
   connectivity_strength: number;
-  decay_radii: { lrt: number; bike_infra: number; transit: number };
+  decay_radii: PlannerDecayRadii;
+  density_scales: PlannerDensityScales;
   weights: PlannerWeights;
   existing_stations: { lat: number; lng: number; capacity: number }[];
 }): Promise<OptimizeResponse> {
@@ -225,7 +228,8 @@ export async function stepPlanner(params: {
   proximity_discount_strength: number;
   connectivity_radius: number;
   connectivity_strength: number;
-  decay_radii: { lrt: number; bike_infra: number; transit: number };
+  decay_radii: PlannerDecayRadii;
+  density_scales: PlannerDensityScales;
   weights: PlannerWeights;
   existing_stations: { lat: number; lng: number; capacity: number }[];
 }): Promise<StepResponse> {

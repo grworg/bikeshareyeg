@@ -60,9 +60,13 @@ class OptimizeRequest(BaseModel):
     # Network connectivity
     connectivity_radius: float = Field(2000.0, ge=0, le=20000)
     connectivity_strength: float = Field(60.0, ge=0, le=100)
-    # Per-factor decay radii (metres)
+    # Per-factor decay radii (metres) — proximity-scored factors only
     decay_radii: dict[str, float] = Field(default_factory=lambda: {
         "lrt": 2000.0, "bike_infra": 1000.0, "transit": 800.0,
+    })
+    # Density scales — for density-scored POI factors (count at score=1.0)
+    density_scales: dict[str, float] = Field(default_factory=lambda: {
+        "commercial": 30.0, "education": 5.0, "recreation": 8.0,
     })
     # Factor weights (0-1)
     weights: dict[str, float] = Field(default_factory=lambda: {
@@ -70,6 +74,9 @@ class OptimizeRequest(BaseModel):
         "lrt": 0.5,
         "bike_infra": 0.5,
         "transit": 0.4,
+        "commercial": 0.6,
+        "education": 0.4,
+        "recreation": 0.3,
     })
     # Existing stations (seeded LRT docks, etc.) — optimizer works around these
     existing_stations: list[ExistingStation] = Field(default_factory=list)
@@ -88,8 +95,12 @@ class StepRequest(BaseModel):
     decay_radii: dict[str, float] = Field(default_factory=lambda: {
         "lrt": 2000.0, "bike_infra": 1000.0, "transit": 800.0,
     })
+    density_scales: dict[str, float] = Field(default_factory=lambda: {
+        "commercial": 30.0, "education": 5.0, "recreation": 8.0,
+    })
     weights: dict[str, float] = Field(default_factory=lambda: {
         "population": 0.8, "lrt": 0.5, "bike_infra": 0.5, "transit": 0.4,
+        "commercial": 0.6, "education": 0.4, "recreation": 0.3,
     })
     existing_stations: list[ExistingStation] = Field(default_factory=list)
 
@@ -176,6 +187,7 @@ def run_optimize(req: OptimizeRequest, request: Request):
             connectivity_radius=req.connectivity_radius,
             connectivity_strength=req.connectivity_strength / 100.0,
             decay_radii=req.decay_radii,
+            density_scales=req.density_scales,
             weights=req.weights,
             existing_stations=existing,
         )
@@ -233,6 +245,7 @@ def run_step(req: StepRequest, request: Request):
             connectivity_radius=req.connectivity_radius,
             connectivity_strength=req.connectivity_strength / 100.0,
             decay_radii=req.decay_radii,
+            density_scales=req.density_scales,
             weights=req.weights,
             existing_stations=existing,
         )
