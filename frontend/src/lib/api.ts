@@ -88,6 +88,13 @@ export async function resetStations(): Promise<BikeStation[]> {
   return data.stations;
 }
 
+export async function clearStations(): Promise<BikeStation[]> {
+  const data = await fetchJSON<{ stations: BikeStation[] }>("/stations/clear", {
+    method: "POST",
+  });
+  return data.stations;
+}
+
 // ---------------------------------------------------------------------------
 // Routing
 // ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ import {
   getStations,
   saveStations,
   resetStations as apiResetStations,
+  clearStations as apiClearStations,
   computeRoutes,
   reverseGeocode,
   getOverlay,
@@ -466,12 +467,12 @@ export default function Home() {
   );
 
   const handleResetStations = useCallback(() => {
-    apiResetStations()
+    apiClearStations()
       .then((s) => {
         undoRedo.push(s);
         setSelectedStationId(null);
       })
-      .catch((err) => console.error("Failed to reset stations:", err));
+      .catch((err) => console.error("Failed to clear stations:", err));
   }, [undoRedo]);
 
   // (Mode switching is handled by SideNav now)

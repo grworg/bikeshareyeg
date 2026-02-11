@@ -132,3 +132,9 @@ def reset_stations(session_id: str) -> list[dict]:
     """Reset this session's stations back to defaults."""
     _store.put(session_id, copy.deepcopy(_load_defaults()))
     return get_stations(session_id)
+
+
+def clear_stations(session_id: str) -> list[dict]:
+    """Remove all stations for this session (empty network)."""
+    _store.put(session_id, [])
+    return []

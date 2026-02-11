@@ -25,7 +25,7 @@ from src.api.overlays import router as overlays_router
 from src.api.elevation import router as elevation_router
 from src.api.planner import router as planner_router
 from src.config import settings, EDMONTON_CENTER
-from src.data.stations import get_stations, set_stations, reset_stations, create_session
+from src.data.stations import get_stations, set_stations, reset_stations, clear_stations, create_session
 
 # ---------------------------------------------------------------------------
 # Rate limiter (keyed by client IP)
@@ -193,3 +193,11 @@ async def do_reset_stations(request: Request):
     """Reset stations back to defaults for this session."""
     sid = request.state.session_id
     return {"stations": reset_stations(sid)}
+
+
+@app.post("/api/stations/clear")
+@limiter.limit(settings.rate_limit_default)
+async def do_clear_stations(request: Request):
+    """Remove all stations for this session (empty network)."""
+    sid = request.state.session_id
+    return {"stations": clear_stations(sid)}
