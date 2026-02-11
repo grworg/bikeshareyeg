@@ -67,62 +67,60 @@ Built-in docs at `/docs` covering project goals, getting started guides, algorit
 - **Docker** (optional, for OpenTripPlanner routing)
 - [uv](https://docs.astral.sh/uv/) recommended for Python dependency management
 
-### 1. Clone the repo
+### Quick Start
 
 ```bash
 git clone git@github.com:grworg/bikeshareyeg.git
 cd bikeshareyeg
+make dev
 ```
 
-### 2. Backend
+That's it. The `make dev` command installs all dependencies (if needed), creates a `.env` file, and starts the backend API + frontend dev server with hot reload.
+
+- **Frontend:** [http://localhost:3000](http://localhost:3000)
+- **Backend API:** [http://localhost:8000](http://localhost:8000)
+- **API docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
+
+For multimodal routing (transit + bike), also start OpenTripPlanner:
 
 ```bash
+make dev-otp
+```
+
+### All Commands
+
+Run `make help` to see available commands:
+
+| Command | Description |
+|---------|-------------|
+| `make dev` | Start backend + frontend (hot-reload) |
+| `make dev-otp` | Start everything including OpenTripPlanner |
+| `make install` | Force reinstall all dependencies |
+| `make lint` | Run linters (ruff + next lint) |
+| `make format` | Auto-format Python code |
+| `make deploy` | Build, transfer, and deploy to production |
+| `make deploy-quick` | Sync code + restart (skip image rebuild) |
+| `make up` | Start full stack via docker-compose (local) |
+| `make down` | Stop all containers |
+
+### Manual Setup
+
+If you prefer to set things up manually:
+
+```bash
+# Backend
 cd backend
-
-# Using uv (recommended)
-uv venv && source .venv/bin/activate
-uv pip install -e .
-
-# Or using pip
-python -m venv .venv && source .venv/bin/activate
-pip install -e .
-```
-
-Copy the environment file and (optionally) add your Edmonton Open Data token for higher API rate limits:
-
-```bash
-cp .env.example .env
-```
-
-Start the API server:
-
-```bash
+uv venv && uv pip install -e .    # or: python -m venv .venv && pip install -e .
+cp ../.env.example ../.env
 uvicorn src.api.main:app --reload --port 8000
-```
 
-### 3. Frontend
-
-```bash
+# Frontend (in a separate terminal)
 cd frontend
 npm install
 npm run dev
-```
 
-Open [http://localhost:3000](http://localhost:3000). The frontend proxies `/api/*` to the backend on port 8000.
-
-### 4. OpenTripPlanner (optional)
-
-For multimodal routing, set up OTP with Edmonton transit data:
-
-```bash
-./scripts/setup-otp.sh      # downloads GTFS + OSM data
-docker compose up -d         # starts OTP on port 8080
-```
-
-OTP takes a minute or two to build its graph on first start. Check health with:
-
-```bash
-docker compose logs -f otp
+# OpenTripPlanner (optional, in a separate terminal)
+./scripts/setup-otp.sh
 ```
 
 ## Architecture
@@ -198,43 +196,67 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 
 ## Self-Hosting (Production)
 
-The entire stack is Dockerized — one command to deploy on any machine with Docker installed. Tested on Hetzner CX22/CX32 (Ubuntu 24.04).
+The entire stack is Dockerized. Deploy from your local machine with a single command:
 
 ```bash
-# 1. Clone and run the setup script (installs Docker, UFW, builds everything)
-git clone https://github.com/grworg/bikeshareyeg.git /opt/bikeshareyeg
-bash /opt/bikeshareyeg/deploy/setup.sh your-domain.com
-
-# That's it. To manage:
-docker compose ps              # status
-docker compose logs -f         # follow logs
-docker compose up -d --build   # rebuild after code changes
+make deploy
 ```
 
-Or do it manually:
+This builds Docker images locally, transfers them to the server via SSH, syncs the code, and restarts all services. No `docker build` runs on the server (works even if the server has restricted outbound networking).
+
+For subsequent deploys with only code changes (no dependency changes):
 
 ```bash
-cp .env.example .env           # edit DOMAIN, ALLOWED_ORIGINS, etc.
+make deploy-quick      # sync + restart, skip image rebuild
+make deploy-data       # also sync overlay/cache data files
+```
+
+### First-time server setup
+
+On a fresh server (Ubuntu 24.04, Docker pre-installed):
+
+```bash
+# From your local machine:
+./scripts/deploy.sh --sync-data
+```
+
+Or manually:
+
+```bash
+cp .env.example .env           # edit ALLOWED_ORIGINS, etc.
 docker compose up -d --build   # API + frontend + OTP + Caddy
+```
+
+Your host reverse proxy (Caddy, nginx, etc.) should forward the subdomain to `localhost:8443`.
+
+### Ansible
+
+For repeatable deployments with templated config and secrets:
+
+```bash
+cd infrastructure/ansible
+cp inventory/production.yml.example inventory/production.yml    # edit
+cp group_vars/production.yml.example group_vars/production.yml  # edit
+cp group_vars/secrets.yml.example group_vars/secrets.yml        # edit
+ansible-playbook -i inventory/production.yml deploy.yml
 ```
 
 **What's included:**
 
 | Layer | Tool | Purpose |
 |-------|------|---------|
-| Reverse proxy | Caddy | Auto-HTTPS, security headers, request routing |
+| Reverse proxy | Caddy | Security headers, request routing |
 | API | Gunicorn + uvicorn | 2 workers, 120s timeout, memory-limited |
 | Frontend | Next.js standalone | Minimal Node runtime, ~50 MB image |
 | Transit | OpenTripPlanner | GTFS + OSM multimodal routing |
-| Firewall | UFW | SSH + HTTP/S only |
 
 **Security features:**
 - Per-session station state (visitors don't interfere with each other)
 - Rate limiting on expensive endpoints (MCLP, routing)
 - Input validation with sensible caps
-- Upstream API response caching
+- Upstream API response caching (disk-backed, works offline)
 - Container memory/CPU limits
-- No ports exposed except 80/443
+- CORS locked to configured origin
 
 ## Roadmap
 
