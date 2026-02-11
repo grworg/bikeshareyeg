@@ -1,17 +1,11 @@
 [project]
 name = "bikeshareyeg"
-version = "0.1.0"
+version = "0.2.0"
 description = "Bike-sharing network planning, simulation, and visualization for Edmonton, AB"
 readme = "../README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 keywords = ["bike-share", "urban-planning", "edmonton", "optimization", "civic-tech"]
-
-[project.urls]
-Homepage = "https://github.com/grworg/bikeshareyeg"
-Repository = "https://github.com/grworg/bikeshareyeg"
-Issues = "https://github.com/grworg/bikeshareyeg/issues"
-Changelog = "https://github.com/grworg/bikeshareyeg/blob/main/CHANGELOG.md"
 dependencies = [
     # API
     "fastapi>=0.115",
@@ -57,6 +51,12 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
 ]
+
+[project.urls]
+Homepage = "https://github.com/grworg/bikeshareyeg"
+Repository = "https://github.com/grworg/bikeshareyeg"
+Issues = "https://github.com/grworg/bikeshareyeg/issues"
+Changelog = "https://github.com/grworg/bikeshareyeg/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]

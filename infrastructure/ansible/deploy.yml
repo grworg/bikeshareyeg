@@ -28,16 +28,25 @@
         group: deploy
         mode: '0755'
 
-    - name: Clone/update repository
-      become_user: deploy
-      git:
-        repo: "https://{{ github_token ~ '@' if github_token else '' }}github.com/grworg/bikeshareyeg.git"
-        dest: "{{ app_dir }}"
-        version: main
-        force: yes
-        accept_hostkey: yes
+    - name: Sync repository via rsync (from control machine)
+      synchronize:
+        src: "{{ playbook_dir }}/../../"
+        dest: "{{ app_dir }}/"
+        delete: no
+        recursive: yes
+        rsync_opts:
+          - "--exclude=.git"
+          - "--exclude=node_modules"
+          - "--exclude=.next"
+          - "--exclude=.venv"
+          - "--exclude=__pycache__"
+          - "--exclude=*.pyc"
+          - "--exclude=data/overpass_cache"
+          - "--exclude=data/overlays"
+          - "--exclude=data/raw"
+          - "--exclude=data/processed"
+          - "--exclude=data/cache"
       register: git_result
-      no_log: "{{ github_token | default('') | length > 0 }}"
 
     # =========================================================================
     # CONFIGURATION
@@ -132,7 +141,7 @@
           - ""
           - "  URL:    https://{{ domain }}"
           - "  Server: {{ inventory_hostname }}"
-          - "  Commit: {{ git_result.after | default('unchanged') }}"
+          - "  Files synced: {{ git_result.changed | default(false) }}"
           - ""
           - "  Health:"
           - "    API (local):  {{ 'OK' if api_health.status == 200 else 'FAILED' }}"
