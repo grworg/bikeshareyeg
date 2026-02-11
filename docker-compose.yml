@@ -3,11 +3,13 @@ services:
     image: docker.io/opentripplanner/opentripplanner:2.6.0
     container_name: bikeshareyeg-otp
     ports:
-      - "8080:8080"
+      # Bind to loopback only — not exposed to the internet
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./data/otp:/var/opentripplanner
     environment:
-      - JAVA_OPTS=-Xmx4G
+      # 1.5 G is enough for Edmonton metro; reduce if you add more GTFS feeds
+      - JAVA_OPTS=-Xmx1536M -Xms512M
     command: ["--load", "--serve"]
     restart: unless-stopped
     healthcheck:
@@ -16,3 +18,8 @@ services:
       timeout: 5s
       retries: 30
       start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"

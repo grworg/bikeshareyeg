@@ -1,12 +1,15 @@
 import type { NextConfig } from "next";
 
+const API_BACKEND =
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 const nextConfig: NextConfig = {
   // Proxy API calls to the Python backend
   async rewrites() {
     return [
       {
         source: "/api/:path*",
-        destination: "http://localhost:8000/api/:path*",
+        destination: `${API_BACKEND}/api/:path*`,
       },
     ];
   },
@@ -15,6 +18,9 @@ const nextConfig: NextConfig = {
   experimental: {
     proxyTimeout: 120_000, // 120 s
   },
+
+  // Standalone output for easier deployment (smaller footprint)
+  output: "standalone",
 };
 
 export default nextConfig;

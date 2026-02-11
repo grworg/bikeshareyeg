@@ -35,11 +35,36 @@ class Settings(BaseSettings):
     """App settings, loaded from environment / .env file."""
 
     app_name: str = "BikeShareYEG"
-    debug: bool = True
-    host: str = "0.0.0.0"
+
+    # --- Deployment mode ---
+    debug: bool = False  # True enables Swagger docs + verbose errors
+    host: str = "127.0.0.1"  # bind to loopback; Caddy proxies from outside
     port: int = 8000
 
-    # Edmonton Open Data app token (optional, increases rate limits)
+    # --- CORS ---
+    # Comma-separated allowed origins.  "*" allows all (not recommended).
+    allowed_origins: str = "http://localhost:3000,http://localhost:3001"
+
+    # --- Session / multi-tenancy ---
+    # Max concurrent sessions kept in memory (oldest evicted via LRU)
+    max_sessions: int = 200
+    # Session cookie name
+    session_cookie: str = "bsyeg_sid"
+    # Session lifetime in seconds (default 24 h)
+    session_ttl_s: int = 86400
+
+    # --- Rate limiting ---
+    # Format: "N/period" — e.g. "5/minute", "60/minute"
+    rate_limit_optimize: str = "3/minute"
+    rate_limit_step: str = "20/minute"
+    rate_limit_routes: str = "15/minute"
+    rate_limit_default: str = "60/minute"
+
+    # --- Planner caps ---
+    max_num_stations: int = 100
+    max_existing_stations: int = 200
+
+    # --- Edmonton Open Data ---
     edmonton_app_token: str | None = None
 
     # H3 resolution for hex binning (7 = ~5.16 km², 8 = ~0.74 km², 9 = ~0.105 km²)

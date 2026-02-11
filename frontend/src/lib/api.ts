@@ -22,6 +22,7 @@ async function fetchJSON<T = unknown>(
 ): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
+    credentials: "include",        // send session cookie
     ...options,
   });
   if (!res.ok) {

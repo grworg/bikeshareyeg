@@ -10,6 +10,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 import httpx
 
+from src.api.cache import geocode_cache
+
 router = APIRouter(prefix="/api/geocode", tags=["geocode"])
 
 # Photon (fast, autocomplete-optimized, free, no key)
@@ -22,9 +24,6 @@ EDMONTON_LNG = -113.4937
 
 # Edmonton bounding box for filtering
 BBOX = {"min_lat": 53.39, "max_lat": 53.72, "min_lng": -113.71, "max_lng": -113.27}
-
-# In-memory cache
-_cache: dict[str, list[dict]] = {}
 
 
 def _build_label(props: dict) -> str:
@@ -63,8 +62,9 @@ async def geocode(
     Geocode an address/place name scoped to Edmonton. Uses Photon for speed.
     """
     cache_key = f"{q.lower().strip()}:{limit}"
-    if cache_key in _cache:
-        return _cache[cache_key]
+    cached = geocode_cache.get("fwd", cache_key)
+    if cached is not None:
+        return cached
 
     params = {
         "q": q,
@@ -103,7 +103,7 @@ async def geocode(
         if len(results) >= limit:
             break
 
-    _cache[cache_key] = results
+    geocode_cache.put("fwd", cache_key, results)
     return results
 
 

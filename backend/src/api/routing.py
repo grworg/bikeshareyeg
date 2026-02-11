@@ -21,10 +21,11 @@ from datetime import date, datetime
 from typing import Any
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from src.data.stations import get_stations
+from src.api.cache import route_cache
 from src.data.otp import (
     plan as otp_plan,
     is_available as otp_is_available,
@@ -247,14 +248,21 @@ def _straight_line_fallback(mode: str, origin: LatLng, dest: LatLng) -> dict:
 
 
 async def _route(mode: str, origin: LatLng, dest: LatLng, client: httpx.AsyncClient) -> dict:
+    # Check cache first (round coords to ~11 m precision for cache hits)
+    cache_key = f"{mode}:{round(origin.lat, 4)},{round(origin.lng, 4)}:{round(dest.lat, 4)},{round(dest.lng, 4)}"
+    cached = route_cache.get("route", cache_key)
+    if cached is not None:
+        return cached
+
     result = await _brouter_route(mode, origin, dest, client)
-    if result:
-        return result
-    osrm_profile = "foot" if mode == "walk" else "bicycle"
-    result = await _osrm_route(osrm_profile, origin, dest, client)
-    if result:
-        return result
-    return _straight_line_fallback(mode, origin, dest)
+    if not result:
+        osrm_profile = "foot" if mode == "walk" else "bicycle"
+        result = await _osrm_route(osrm_profile, origin, dest, client)
+    if not result:
+        result = _straight_line_fallback(mode, origin, dest)
+
+    route_cache.put("route", cache_key, result)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -285,8 +293,8 @@ async def _compute_bike(origin: LatLng, dest: LatLng, client: httpx.AsyncClient)
     )
 
 
-async def _compute_bikeshare(origin: LatLng, dest: LatLng, client: httpx.AsyncClient) -> RouteOption | None:
-    stations = get_stations()
+async def _compute_bikeshare(origin: LatLng, dest: LatLng, client: httpx.AsyncClient, session_id: str = "") -> RouteOption | None:
+    stations = get_stations(session_id)
     pickups = [(d, s) for s in stations if s["bikes"] > 0 for d in [_haversine_m(origin.lat, origin.lng, s["lat"], s["lng"])] if d <= MAX_WALK_TO_STATION_M]
     pickups.sort(key=lambda x: x[0])
     dropoffs = [(d, s) for s in stations if s["bikes"] < s["capacity"] for d in [_haversine_m(dest.lat, dest.lng, s["lat"], s["lng"])] if d <= MAX_WALK_TO_STATION_M]
@@ -460,6 +468,7 @@ async def _compute_transit_otp(
 
 async def _compute_transit_bike_otp(
     origin: LatLng, dest: LatLng, dep_date: date, dep_s: int, client: httpx.AsyncClient,
+    session_id: str = "",
 ) -> list[RouteOption]:
     """
     Compose bike-share + transit routes.
@@ -467,7 +476,7 @@ async def _compute_transit_bike_otp(
     Strategy: get OTP transit itineraries, then try to replace the first/last
     walk legs with bike-share access/egress for faster door-to-door times.
     """
-    stations_data = get_stations()
+    stations_data = get_stations(session_id)
     results: list[RouteOption] = []
 
     # ── Get base transit itineraries from OTP ──
@@ -920,9 +929,10 @@ async def _compute_transit_gtfs(
 
 async def _compute_transit_bike_gtfs(
     origin: LatLng, dest: LatLng, dep_date: date, dep_s: int, client: httpx.AsyncClient,
+    session_id: str = "",
 ) -> list[RouteOption]:
     """Fallback: bike-share + LRT-only via GTFS when OTP is not available."""
-    stations_data = get_stations()
+    stations_data = get_stations(session_id)
     results: list[RouteOption] = []
 
     # Option A: Bike Share (origin → LRT stop) → LRT → Walk
@@ -1153,9 +1163,11 @@ async def _enrich_elevation(route: RouteOption, client: httpx.AsyncClient) -> No
 # ---------------------------------------------------------------------------
 
 @router.post("", response_model=RoutesResponse)
-async def compute_routes(req: RoutesRequest) -> RoutesResponse:
+async def compute_routes(req: RoutesRequest, request: Request) -> RoutesResponse:
     """Compute multi-modal routes between origin and destination."""
     dep_date, dep_s = _parse_departure(req.departure_time)
+    # Session-scoped station state
+    _sid = getattr(request.state, "session_id", "")
 
     # ── Non-transit routes (walk, bike, bikeshare) ──
     async with httpx.AsyncClient() as client:
@@ -1165,7 +1177,7 @@ async def compute_routes(req: RoutesRequest) -> RoutesResponse:
         if "bike" in req.modes:
             tasks.append(_compute_bike(req.origin, req.destination, client))
         if "bikeshare" in req.modes:
-            tasks.append(_compute_bikeshare(req.origin, req.destination, client))
+            tasks.append(_compute_bikeshare(req.origin, req.destination, client, _sid))
         results = await asyncio.gather(*tasks)
 
     routes = [r for r in results if r is not None]
@@ -1183,9 +1195,9 @@ async def compute_routes(req: RoutesRequest) -> RoutesResponse:
 
         if "transit_bike" in req.modes:
             if use_otp:
-                transit_tasks.append(_compute_transit_bike_otp(req.origin, req.destination, dep_date, dep_s, client))
+                transit_tasks.append(_compute_transit_bike_otp(req.origin, req.destination, dep_date, dep_s, client, _sid))
             else:
-                transit_tasks.append(_compute_transit_bike_gtfs(req.origin, req.destination, dep_date, dep_s, client))
+                transit_tasks.append(_compute_transit_bike_gtfs(req.origin, req.destination, dep_date, dep_s, client, _sid))
 
         if transit_tasks:
             transit_results = await asyncio.gather(*transit_tasks, return_exceptions=True)

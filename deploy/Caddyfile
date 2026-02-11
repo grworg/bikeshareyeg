@@ -1,0 +1,49 @@
+# BikeShareYEG — Caddy reverse proxy
+#
+# Replace {$DOMAIN} with your actual domain, or set the DOMAIN env var.
+# Caddy auto-provisions HTTPS certificates via Let's Encrypt.
+#
+# Usage:
+#   DOMAIN=bikeshareyeg.ca caddy run --config /etc/caddy/Caddyfile
+#
+# Or hardcode the domain directly below instead of using {$DOMAIN}.
+
+{$DOMAIN:localhost} {
+    # ── API → FastAPI (Gunicorn) ──
+    handle /api/* {
+        reverse_proxy localhost:8000 {
+            transport http {
+                read_timeout  120s
+                write_timeout 120s
+            }
+        }
+    }
+
+    # ── Health check (direct to backend) ──
+    handle /health {
+        reverse_proxy localhost:8000
+    }
+
+    # ── Everything else → Next.js ──
+    handle {
+        reverse_proxy localhost:3000
+    }
+
+    # ── Security headers ──
+    header {
+        X-Content-Type-Options    nosniff
+        X-Frame-Options           DENY
+        Referrer-Policy           strict-origin-when-cross-origin
+        Permissions-Policy        camera=(), microphone=(), geolocation=()
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        -Server
+    }
+
+    # ── Logging ──
+    log {
+        output file /var/log/caddy/bikeshareyeg.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
+}

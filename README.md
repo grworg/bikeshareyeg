@@ -196,6 +196,34 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for gu
 
 This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
 
+## Self-Hosting (Production)
+
+BikeShareYEG ships with everything needed to self-host on a single VM (tested on Hetzner CX22/CX32 running Ubuntu 24.04).
+
+```bash
+# 1. Clone and run the setup script
+git clone https://github.com/grworg/bikeshareyeg.git /opt/bikeshareyeg
+bash /opt/bikeshareyeg/deploy/setup.sh your-domain.com
+
+# 2. Review the generated .env
+nano /opt/bikeshareyeg/.env
+
+# 3. Start services
+cd /opt/bikeshareyeg && docker compose up -d          # OTP
+systemctl start bikeshareyeg-api bikeshareyeg-web caddy
+```
+
+The setup script installs all dependencies, builds the frontend, configures Caddy (auto-HTTPS), sets up systemd services with resource limits, and enables UFW. See [`deploy/`](deploy/) for individual config files.
+
+**What's included out of the box:**
+- Per-session station state (visitors don't interfere with each other)
+- Rate limiting on expensive endpoints (MCLP, routing)
+- Input validation with sensible caps
+- Upstream API response caching
+- Caddy reverse proxy with automatic HTTPS
+- systemd service units with memory/CPU limits
+- UFW firewall (SSH + HTTP/S only)
+
 ## Roadmap
 
 - [ ] Simulation engine (SimPy discrete-event modelling of trips, rebalancing)

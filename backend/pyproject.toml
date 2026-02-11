@@ -46,6 +46,9 @@ dependencies = [
     "python-dotenv>=1.0",
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
+    # Production
+    "slowapi>=0.1.9",
+    "gunicorn>=23.0",
 ]
 
 [project.optional-dependencies]

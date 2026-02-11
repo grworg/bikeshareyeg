@@ -4,14 +4,16 @@ Planner API — suitability hex grid and MCLP station optimization.
 Endpoints:
   GET  /api/planner/hexgrid   → pre-computed hex grid with factor scores
   POST /api/planner/optimize  → run MCLP, return optimal station placements
+  POST /api/planner/step      → greedy single-station placement
   GET  /api/planner/factors   → list available suitability factors
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from src.config import settings
 from src.optimization.planner import (
     SuitabilityEngine,
     OptimizeConfig,
@@ -37,26 +39,26 @@ def _get_engine() -> SuitabilityEngine:
 # ---------------------------------------------------------------------------
 
 class ExistingStation(BaseModel):
-    lat: float
-    lng: float
-    capacity: int = 20
+    lat: float = Field(..., ge=50.0, le=60.0)
+    lng: float = Field(..., ge=-120.0, le=-108.0)
+    capacity: int = Field(20, ge=1, le=200)
 
 class OptimizeRequest(BaseModel):
     algorithm: str = Field("iterative_mclp", pattern=r"^(iterative_mclp|greedy)$")
-    batch_size: int = Field(5, ge=1, le=100)
+    batch_size: int = Field(5, ge=1, le=50)
     num_stations: int = Field(40, ge=1)
-    coverage_radius_m: float = Field(1000.0, ge=50)
-    min_spacing_m: float = Field(800.0, ge=0)
+    coverage_radius_m: float = Field(1000.0, ge=50, le=5000)
+    min_spacing_m: float = Field(800.0, ge=0, le=5000)
     # Fleet sizing
-    total_bikes: int = Field(600, ge=1)
-    min_docks_per_station: int = Field(15, ge=1)
-    max_docks_per_station: int = Field(30, ge=1)
+    total_bikes: int = Field(600, ge=1, le=10000)
+    min_docks_per_station: int = Field(15, ge=1, le=200)
+    max_docks_per_station: int = Field(30, ge=1, le=200)
     target_fill_pct: float = Field(0.5, ge=0.0, le=1.0)
     # Station proximity discount
-    proximity_discount_radius: float = Field(500.0, ge=0)
+    proximity_discount_radius: float = Field(500.0, ge=0, le=10000)
     proximity_discount_strength: float = Field(70.0, ge=0, le=100)
     # Network connectivity
-    connectivity_radius: float = Field(2000.0, ge=0)
+    connectivity_radius: float = Field(2000.0, ge=0, le=20000)
     connectivity_strength: float = Field(60.0, ge=0, le=100)
     # Per-factor decay radii (metres)
     decay_radii: dict[str, float] = Field(default_factory=lambda: {
@@ -75,13 +77,13 @@ class OptimizeRequest(BaseModel):
 
 class StepRequest(BaseModel):
     """Lightweight request for a single greedy step."""
-    min_spacing_m: float = Field(800.0, ge=0)
-    min_docks_per_station: int = Field(15, ge=1)
-    max_docks_per_station: int = Field(30, ge=1)
+    min_spacing_m: float = Field(800.0, ge=0, le=5000)
+    min_docks_per_station: int = Field(15, ge=1, le=200)
+    max_docks_per_station: int = Field(30, ge=1, le=200)
     target_fill_pct: float = Field(0.5, ge=0.0, le=1.0)
-    proximity_discount_radius: float = Field(500.0, ge=0)
+    proximity_discount_radius: float = Field(500.0, ge=0, le=10000)
     proximity_discount_strength: float = Field(70.0, ge=0, le=100)
-    connectivity_radius: float = Field(2000.0, ge=0)
+    connectivity_radius: float = Field(2000.0, ge=0, le=20000)
     connectivity_strength: float = Field(60.0, ge=0, le=100)
     decay_radii: dict[str, float] = Field(default_factory=lambda: {
         "lrt": 2000.0, "bike_infra": 1000.0, "transit": 800.0,
@@ -134,11 +136,24 @@ def get_hexgrid():
 
 
 @router.post("/optimize")
-def run_optimize(req: OptimizeRequest):
+def run_optimize(req: OptimizeRequest, request: Request):
     """Run the MCLP optimizer with the given parameters.
 
     Returns a list of station placements and coverage statistics.
     """
+    # --- Rate limiting applied in main.py via limiter decorator import ---
+    # Enforce caps from settings
+    if req.num_stations > settings.max_num_stations:
+        raise HTTPException(
+            status_code=422,
+            detail=f"num_stations exceeds maximum of {settings.max_num_stations}",
+        )
+    if len(req.existing_stations) > settings.max_existing_stations:
+        raise HTTPException(
+            status_code=422,
+            detail=f"existing_stations exceeds maximum of {settings.max_existing_stations}",
+        )
+
     try:
         engine = _get_engine()
         hex_grid = engine.compute_hex_grid()  # cached
@@ -188,11 +203,17 @@ def run_optimize(req: OptimizeRequest):
 
 
 @router.post("/step")
-def run_step(req: StepRequest):
+def run_step(req: StepRequest, request: Request):
     """Place a single station at the greedily optimal location.
 
     Lightweight endpoint for interactive frame-by-frame network building.
     """
+    if len(req.existing_stations) > settings.max_existing_stations:
+        raise HTTPException(
+            status_code=422,
+            detail=f"existing_stations exceeds maximum of {settings.max_existing_stations}",
+        )
+
     try:
         engine = _get_engine()
         hex_grid = engine.compute_hex_grid()  # cached
