@@ -1,0 +1,139 @@
+---
+# Ansible Playbook: Deploy BikeShareYEG
+#
+# Usage:
+#   ansible-playbook -i inventory/production.yml deploy.yml
+#
+# With vault secrets:
+#   ansible-playbook -i inventory/production.yml deploy.yml --ask-vault-pass
+
+- name: Deploy BikeShareYEG
+  hosts: production
+  become: yes
+
+  vars_files:
+    - group_vars/production.yml
+    - group_vars/secrets.yml
+
+  tasks:
+    # =========================================================================
+    # PREPARATION
+    # =========================================================================
+
+    - name: Ensure app directory exists
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: '0755'
+
+    - name: Clone/update repository
+      become_user: deploy
+      git:
+        repo: "https://{{ github_token ~ '@' if github_token else '' }}github.com/grworg/bikeshareyeg.git"
+        dest: "{{ app_dir }}"
+        version: main
+        force: yes
+        accept_hostkey: yes
+      register: git_result
+      no_log: "{{ github_token | default('') | length > 0 }}"
+
+    # =========================================================================
+    # CONFIGURATION
+    # =========================================================================
+
+    - name: Template .env file
+      template:
+        src: templates/env.j2
+        dest: "{{ app_dir }}/.env"
+        owner: deploy
+        group: deploy
+        mode: '0600'
+      register: env_changed
+
+    # =========================================================================
+    # DATA DIRECTORY
+    # =========================================================================
+
+    - name: Ensure data directories exist
+      become_user: deploy
+      file:
+        path: "{{ app_dir }}/data/{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - otp
+        - overpass_cache
+        - overlays
+        - gtfs
+
+    # =========================================================================
+    # DOCKER BUILD & DEPLOY
+    # =========================================================================
+
+    - name: Build and pull Docker images
+      become_user: deploy
+      shell: |
+        cd {{ app_dir }}
+        docker compose build --pull
+        docker compose pull caddy
+      when: git_result.changed or env_changed.changed
+      register: build_result
+
+    - name: Start/update services
+      become_user: deploy
+      shell: |
+        cd {{ app_dir }}
+        docker compose up -d
+      register: compose_up
+
+    - name: Restart services if config changed
+      become_user: deploy
+      shell: |
+        cd {{ app_dir }}
+        docker compose restart api web caddy
+      when: env_changed.changed and not git_result.changed
+
+    # =========================================================================
+    # HEALTH CHECKS
+    # =========================================================================
+
+    - name: Wait for API to be healthy
+      uri:
+        url: "http://localhost:8443/health"
+        status_code: 200
+      register: api_health
+      until: api_health.status == 200
+      retries: 30
+      delay: 5
+
+    - name: Verify public endpoint
+      uri:
+        url: "https://{{ domain }}/health"
+        validate_certs: yes
+      register: public_health
+      failed_when: public_health.status != 200
+      ignore_errors: yes
+
+    # =========================================================================
+    # CLEANUP
+    # =========================================================================
+
+    - name: Prune unused Docker images
+      become_user: deploy
+      shell: docker image prune -f
+      ignore_errors: yes
+
+    - name: Display deployment summary
+      debug:
+        msg:
+          - "✅ BikeShareYEG deployed!"
+          - ""
+          - "  URL:    https://{{ domain }}"
+          - "  Server: {{ inventory_hostname }}"
+          - "  Commit: {{ git_result.after | default('unchanged') }}"
+          - ""
+          - "  Health:"
+          - "    API (local):  {{ 'OK' if api_health.status == 200 else 'FAILED' }}"
+          - "    Public:       {{ 'OK' if public_health.status | default(0) == 200 else 'FAILED (DNS or TLS not ready yet?)' }}"

@@ -1,0 +1,16 @@
+# Ansible Inventory for Production — EXAMPLE
+# Copy to production.yml and update with your values.
+# production.yml is gitignored.
+
+all:
+  children:
+    production:
+      hosts:
+        bikeshareyeg:
+          ansible_host: grassroots  # ~/.ssh/config entry or IP
+          ansible_user: deploy
+          ansible_python_interpreter: /usr/bin/python3
+
+  vars:
+    project_name: bikeshareyeg
+    app_dir: /opt/bikeshareyeg

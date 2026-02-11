@@ -1,0 +1,41 @@
+# BikeShareYEG — Production Variables (EXAMPLE)
+# Copy to production.yml and adjust as needed.
+# production.yml is gitignored.
+
+# =============================================================================
+# DOMAIN & ENVIRONMENT
+# =============================================================================
+domain: bikeshare.grassrootswork.org
+environment: production
+debug: false
+
+# =============================================================================
+# CORS — comma-separated allowed origins
+# =============================================================================
+allowed_origins: "https://bikeshare.grassrootswork.org"
+
+# =============================================================================
+# SESSIONS
+# =============================================================================
+max_sessions: 200
+session_ttl_s: 86400  # 24 hours
+
+# =============================================================================
+# RATE LIMITING (format: "N/period")
+# =============================================================================
+rate_limit_optimize: "3/minute"
+rate_limit_step: "20/minute"
+rate_limit_routes: "15/minute"
+rate_limit_default: "60/minute"
+
+# =============================================================================
+# PLANNER CAPS
+# =============================================================================
+max_num_stations: 100
+max_existing_stations: 200
+
+# =============================================================================
+# GITHUB (for cloning the repo — read-only PAT or leave blank for public)
+# =============================================================================
+# github_token is defined in secrets.yml (if repo is private)
+github_token: ""

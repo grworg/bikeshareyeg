@@ -46,3 +46,8 @@ data/overpass_cache/
 
 # TypeScript build info
 *.tsbuildinfo
+
+# Ansible secrets & real inventory (only .example files are committed)
+infrastructure/ansible/inventory/production.yml
+infrastructure/ansible/group_vars/production.yml
+infrastructure/ansible/group_vars/secrets.yml
