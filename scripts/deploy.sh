@@ -80,7 +80,7 @@ if [ "$SKIP_BUILD" = false ]; then
   ok "Images built"
 
   step "Transferring images to server"
-  docker save bikeshareyeg_api bikeshareyeg_web \
+  docker save bikeshareyeg-api bikeshareyeg-web \
     | gzip \
     | ssh "$SSH_HOST" "docker load"
   ok "Images loaded on server"
@@ -130,6 +130,18 @@ ssh "$SSH_HOST" "
 step "Restarting services"
 ssh "$SSH_HOST" "cd $REMOTE_DIR && docker compose up -d --no-build"
 ok "Services started"
+
+# ── Connect host Caddy to bikeshareyeg network ──────────────
+# The host's grassroots-caddy reverse-proxies to bikeshareyeg-caddy
+# by container name, so it must be on the same Docker network.
+step "Connecting host Caddy to bikeshareyeg network"
+BIKESHARE_NET=$(ssh "$SSH_HOST" "docker inspect bikeshareyeg-caddy --format '{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}}{{end}}'" 2>/dev/null || true)
+if [ -n "$BIKESHARE_NET" ]; then
+  ssh "$SSH_HOST" "docker network connect $BIKESHARE_NET grassroots-caddy 2>/dev/null || true"
+  ok "grassroots-caddy connected to $BIKESHARE_NET"
+else
+  err "Could not determine bikeshareyeg network name"
+fi
 
 # ── Health check ─────────────────────────────────────────────
 step "Health check"

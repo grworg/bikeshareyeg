@@ -21,6 +21,7 @@
 services:
   # ── API (FastAPI + Gunicorn) ──────────────────────────────
   api:
+    image: bikeshareyeg-api:latest
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -52,6 +53,7 @@ services:
 
   # ── Frontend (Next.js standalone) ─────────────────────────
   web:
+    image: bikeshareyeg-web:latest
     build:
       context: ./frontend
       dockerfile: Dockerfile
