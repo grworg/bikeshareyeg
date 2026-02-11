@@ -1,25 +1,121 @@
+# ── BikeShareYEG — Full Stack ────────────────────────────────
+#
+# Usage:
+#   cp .env.example .env          # review & edit
+#   docker compose up -d --build  # start everything
+#   docker compose logs -f        # watch logs
+#
+# Architecture:
+#   caddy (443/80) → web (3000)  for HTML/JS
+#                  → api (8000)  for /api/* and /health
+#   api → otp (8080)             for transit routing
+#
+# Data:
+#   ./data/ is bind-mounted into the api container so station data,
+#   overpass cache, overlays, and GTFS files persist across restarts.
+
 services:
+  # ── API (FastAPI + Gunicorn) ──────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bikeshareyeg-api
+    env_file: .env
+    environment:
+      # Override OTP URL to use Docker-internal hostname
+      - OTP_URL=http://otp:8080
+    volumes:
+      - ./data:/app/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+          cpus: "1.5"
+
+  # ── Frontend (Next.js standalone) ─────────────────────────
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://api:8000
+    container_name: bikeshareyeg-web
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+    expose:
+      - "3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+  # ── OpenTripPlanner (transit routing) ─────────────────────
   otp:
     image: docker.io/opentripplanner/opentripplanner:2.6.0
     container_name: bikeshareyeg-otp
-    ports:
-      # Bind to loopback only — not exposed to the internet
-      - "127.0.0.1:8080:8080"
+    expose:
+      - "8080"
     volumes:
       - ./data/otp:/var/opentripplanner
     environment:
-      # 1.5 G is enough for Edmonton metro; reduce if you add more GTFS feeds
       - JAVA_OPTS=-Xmx1536M -Xms512M
     command: ["--load", "--serve"]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sf", "-X", "POST", "-H", "Content-Type: application/json", "-d", "{\"query\":\"{__typename}\"}", "http://localhost:8080/otp/routers/default/index/graphql"]
-      interval: 10s
+      interval: 15s
       timeout: 5s
       retries: 30
-      start_period: 60s
+      start_period: 90s
     deploy:
       resources:
         limits:
           memory: 2G
           cpus: "1.0"
+
+  # ── Caddy (reverse proxy + auto-HTTPS) ────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: bikeshareyeg-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+
+volumes:
+  caddy_data:     # TLS certificates
+  caddy_config:   # Caddy runtime config

@@ -198,31 +198,43 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 
 ## Self-Hosting (Production)
 
-BikeShareYEG ships with everything needed to self-host on a single VM (tested on Hetzner CX22/CX32 running Ubuntu 24.04).
+The entire stack is Dockerized — one command to deploy on any machine with Docker installed. Tested on Hetzner CX22/CX32 (Ubuntu 24.04).
 
 ```bash
-# 1. Clone and run the setup script
+# 1. Clone and run the setup script (installs Docker, UFW, builds everything)
 git clone https://github.com/grworg/bikeshareyeg.git /opt/bikeshareyeg
 bash /opt/bikeshareyeg/deploy/setup.sh your-domain.com
 
-# 2. Review the generated .env
-nano /opt/bikeshareyeg/.env
-
-# 3. Start services
-cd /opt/bikeshareyeg && docker compose up -d          # OTP
-systemctl start bikeshareyeg-api bikeshareyeg-web caddy
+# That's it. To manage:
+docker compose ps              # status
+docker compose logs -f         # follow logs
+docker compose up -d --build   # rebuild after code changes
 ```
 
-The setup script installs all dependencies, builds the frontend, configures Caddy (auto-HTTPS), sets up systemd services with resource limits, and enables UFW. See [`deploy/`](deploy/) for individual config files.
+Or do it manually:
 
-**What's included out of the box:**
+```bash
+cp .env.example .env           # edit DOMAIN, ALLOWED_ORIGINS, etc.
+docker compose up -d --build   # API + frontend + OTP + Caddy
+```
+
+**What's included:**
+
+| Layer | Tool | Purpose |
+|-------|------|---------|
+| Reverse proxy | Caddy | Auto-HTTPS, security headers, request routing |
+| API | Gunicorn + uvicorn | 2 workers, 120s timeout, memory-limited |
+| Frontend | Next.js standalone | Minimal Node runtime, ~50 MB image |
+| Transit | OpenTripPlanner | GTFS + OSM multimodal routing |
+| Firewall | UFW | SSH + HTTP/S only |
+
+**Security features:**
 - Per-session station state (visitors don't interfere with each other)
 - Rate limiting on expensive endpoints (MCLP, routing)
 - Input validation with sensible caps
 - Upstream API response caching
-- Caddy reverse proxy with automatic HTTPS
-- systemd service units with memory/CPU limits
-- UFW firewall (SSH + HTTP/S only)
+- Container memory/CPU limits
+- No ports exposed except 80/443
 
 ## Roadmap
 

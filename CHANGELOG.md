@@ -13,11 +13,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Input validation** — Pydantic models with range constraints on all planner and station inputs; server-side caps on `num_stations` (100) and `existing_stations` (200)
 - **Upstream API caching** — thread-safe LRU caches for BRouter/OSRM routes, Photon geocoding, and elevation data
 - **Environment-driven configuration** — all settings (CORS origins, rate limits, session TTL, debug mode) read from `.env` via pydantic-settings with `BIKESHARE_` prefix
-- **Production deployment toolkit** (`deploy/`):
+- **Fully Dockerized deployment** — single `docker compose up` for the entire stack:
+  - Dockerfile for backend (Python 3.12, Gunicorn, multi-stage build)
+  - Dockerfile for frontend (Next.js standalone, multi-stage build)
   - Caddyfile with auto-HTTPS, security headers, and proxy timeouts
-  - systemd units for API (Gunicorn) and frontend (Next.js standalone) with memory/CPU limits
-  - `setup.sh` script for one-command Hetzner VM provisioning (UFW, Caddy, Docker, Node, Python)
-  - Docker Compose hardened for production (loopback-only ports, memory limits)
+  - `setup.sh` for one-command Hetzner VM provisioning (Docker, UFW)
+  - All containers have memory/CPU limits; no ports exposed except 80/443
 
 ### Changed
 

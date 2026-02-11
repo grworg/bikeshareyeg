@@ -4,19 +4,19 @@
 #
 # Target: Ubuntu 24.04 LTS on a CX22 or CX32 Hetzner Cloud VM
 #
+# Prerequisites: SSH into the VM as root
+#
 # Usage:
-#   1. SSH into the VM as root
-#   2. Upload/clone the repo to /opt/bikeshareyeg
-#   3. Run: bash /opt/bikeshareyeg/deploy/setup.sh YOUR_DOMAIN
+#   git clone https://github.com/grworg/bikeshareyeg.git /opt/bikeshareyeg
+#   bash /opt/bikeshareyeg/deploy/setup.sh YOUR_DOMAIN
 #
 # What this does:
-#   • Creates a 'bikeshare' service user
-#   • Installs system deps (Python 3.12, Node 22, uv, Caddy, Docker)
-#   • Installs Python + Node dependencies
-#   • Builds the Next.js frontend
-#   • Copies systemd units & Caddyfile
-#   • Configures UFW firewall
-#   • Enables and starts all services
+#   • Installs Docker Engine + Compose
+#   • Configures UFW firewall (SSH + HTTP/S only)
+#   • Creates .env from template with production defaults
+#   • Builds & starts all containers (API, frontend, OTP, Caddy)
+#
+# Caddy auto-provisions HTTPS certificates via Let's Encrypt.
 # ──────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -27,123 +27,76 @@ echo "════════════════════════�
 echo "  BikeShareYEG deploy → ${DOMAIN}"
 echo "═══════════════════════════════════════════════════════"
 
-# ── 0. Service user ──────────────────────────────────────────
-if ! id -u bikeshare &>/dev/null; then
-    useradd --system --shell /usr/sbin/nologin --home-dir "$APP_DIR" bikeshare
-    echo "[✓] Created user: bikeshare"
-fi
-
-# ── 1. System packages ──────────────────────────────────────
-echo "[1/8] Installing system packages…"
-apt-get update -qq
-apt-get install -y -qq \
-    python3.12 python3.12-venv python3.12-dev \
-    build-essential curl git unzip \
-    ca-certificates gnupg lsb-release
-
-# Node.js 22 via NodeSource
-if ! command -v node &>/dev/null; then
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-    apt-get install -y nodejs
-fi
-
-# uv (fast Python package manager)
-if ! command -v uv &>/dev/null; then
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.local/bin:$PATH"
-fi
-
-# Caddy
-if ! command -v caddy &>/dev/null; then
-    apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
-    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-        | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-        | tee /etc/apt/sources.list.d/caddy-stable.list
-    apt-get update -qq
-    apt-get install -y caddy
-fi
-
-# Docker (for OTP)
+# ── 1. Install Docker ────────────────────────────────────────
 if ! command -v docker &>/dev/null; then
+    echo "[1/4] Installing Docker…"
+    apt-get update -qq
+    apt-get install -y -qq ca-certificates curl
     curl -fsSL https://get.docker.com | sh
-    systemctl enable docker
+    systemctl enable --now docker
+    echo "[✓] Docker installed"
+else
+    echo "[1/4] Docker already installed — skipping"
 fi
 
-echo "[✓] System packages installed"
-
-# ── 2. Application directory ────────────────────────────────
-echo "[2/8] Setting up application directory…"
-chown -R bikeshare:bikeshare "$APP_DIR"
-
-# ── 3. Python backend ──────────────────────────────────────
-echo "[3/8] Installing Python dependencies…"
-cd "$APP_DIR/backend"
-sudo -u bikeshare uv venv .venv --python python3.12
-sudo -u bikeshare uv pip install -e ".[dev]" --quiet 2>/dev/null \
-    || sudo -u bikeshare uv pip install -e . --quiet
-
-# ── 4. Frontend build ──────────────────────────────────────
-echo "[4/8] Building Next.js frontend…"
-cd "$APP_DIR/frontend"
-sudo -u bikeshare npm ci --quiet
-sudo -u bikeshare npm run build
-
-# Copy static assets into standalone output (Next.js standalone quirk)
-if [ -d ".next/standalone" ]; then
-    cp -r public .next/standalone/ 2>/dev/null || true
-    cp -r .next/static .next/standalone/.next/ 2>/dev/null || true
+# Verify compose plugin
+if ! docker compose version &>/dev/null; then
+    echo "[!] docker compose plugin not found — installing"
+    apt-get install -y -qq docker-compose-plugin
 fi
 
-# ── 5. Production .env ─────────────────────────────────────
-echo "[5/8] Configuring environment…"
-if [ ! -f "$APP_DIR/.env" ]; then
-    cp "$APP_DIR/.env.example" "$APP_DIR/.env"
-    # Flip to production defaults
-    sed -i "s/BIKESHARE_DEBUG=true/BIKESHARE_DEBUG=false/" "$APP_DIR/.env"
-    sed -i "s|BIKESHARE_ALLOWED_ORIGINS=.*|BIKESHARE_ALLOWED_ORIGINS=https://${DOMAIN},https://www.${DOMAIN}|" "$APP_DIR/.env"
-    echo "[!] Created .env — review /opt/bikeshareyeg/.env before starting"
-fi
-
-# ── 6. systemd units ──────────────────────────────────────
-echo "[6/8] Installing systemd services…"
-cp "$APP_DIR/deploy/bikeshareyeg-api.service" /etc/systemd/system/
-cp "$APP_DIR/deploy/bikeshareyeg-web.service" /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable bikeshareyeg-api bikeshareyeg-web
-
-# ── 7. Caddy ──────────────────────────────────────────────
-echo "[7/8] Configuring Caddy…"
-mkdir -p /var/log/caddy
-cp "$APP_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
-# Inject the domain
-sed -i "s|{\$DOMAIN:localhost}|${DOMAIN}|" /etc/caddy/Caddyfile
-systemctl enable caddy
-
-# ── 8. Firewall ───────────────────────────────────────────
-echo "[8/8] Configuring firewall…"
-ufw --force reset
+# ── 2. Firewall ──────────────────────────────────────────────
+echo "[2/4] Configuring firewall…"
+apt-get install -y -qq ufw
+ufw --force reset >/dev/null
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow ssh
 ufw allow http
 ufw allow https
 ufw --force enable
-echo "[✓] UFW enabled — only SSH, HTTP, HTTPS open"
+echo "[✓] UFW enabled — SSH, HTTP, HTTPS"
 
-# ── Summary ───────────────────────────────────────────────
+# ── 3. Environment config ───────────────────────────────────
+echo "[3/4] Configuring environment…"
+cd "$APP_DIR"
+
+if [ ! -f .env ]; then
+    cp .env.example .env
+    # Production defaults
+    sed -i "s/BIKESHARE_DEBUG=true/BIKESHARE_DEBUG=false/" .env
+    sed -i "s|BIKESHARE_ALLOWED_ORIGINS=.*|BIKESHARE_ALLOWED_ORIGINS=https://${DOMAIN},https://www.${DOMAIN}|" .env
+
+    # Uncomment and set the domain for Caddy
+    echo "" >> .env
+    echo "# Auto-set by setup.sh" >> .env
+    echo "DOMAIN=${DOMAIN}" >> .env
+
+    echo "[✓] Created .env — review before continuing: nano ${APP_DIR}/.env"
+else
+    echo "[!] .env already exists — skipping (check DOMAIN is set)"
+fi
+
+# ── 4. Build & start ────────────────────────────────────────
+echo "[4/4] Building and starting containers…"
+docker compose up -d --build
+
 echo ""
 echo "═══════════════════════════════════════════════════════"
 echo "  Setup complete!"
 echo "═══════════════════════════════════════════════════════"
 echo ""
-echo "  Next steps:"
-echo ""
-echo "  1. Review config:     nano /opt/bikeshareyeg/.env"
-echo "  2. Start OTP:         cd /opt/bikeshareyeg && docker compose up -d"
-echo "  3. Start services:    systemctl start bikeshareyeg-api bikeshareyeg-web caddy"
-echo "  4. Check status:      systemctl status bikeshareyeg-api bikeshareyeg-web caddy"
-echo "  5. View logs:         journalctl -u bikeshareyeg-api -f"
+echo "  Services:"
+echo "    docker compose ps          # status"
+echo "    docker compose logs -f     # follow all logs"
+echo "    docker compose logs api    # API logs only"
 echo ""
 echo "  Caddy will auto-provision HTTPS for: ${DOMAIN}"
+echo "  (DNS must point to this server's IP first)"
+echo ""
+echo "  Data lives in: ${APP_DIR}/data/"
+echo "  Config:        ${APP_DIR}/.env"
+echo ""
+echo "  To rebuild after code changes:"
+echo "    cd ${APP_DIR} && docker compose up -d --build"
 echo ""
