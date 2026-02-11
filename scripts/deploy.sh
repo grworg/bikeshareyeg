@@ -128,7 +128,7 @@ ssh "$SSH_HOST" "
 
 # ── Restart services ─────────────────────────────────────────
 step "Restarting services"
-ssh "$SSH_HOST" "cd $REMOTE_DIR && docker compose up -d"
+ssh "$SSH_HOST" "cd $REMOTE_DIR && docker compose up -d --no-build"
 ok "Services started"
 
 # ── Health check ─────────────────────────────────────────────
