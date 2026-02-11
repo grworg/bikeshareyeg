@@ -2,6 +2,13 @@
   "name": "bikeshareyeg-frontend",
   "version": "0.1.0",
   "private": true,
+  "description": "Interactive map UI for designing bike-share networks in Edmonton",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/grworg/bikeshareyeg.git",
+    "directory": "frontend"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
