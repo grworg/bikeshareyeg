@@ -76,14 +76,16 @@ async def session_middleware(request: Request, call_next):
     response: Response = await call_next(request)
 
     # Set/refresh cookie on every response
+    # In production the upstream reverse proxy terminates TLS, so we check
+    # the X-Forwarded-Proto header (set by Caddy) to decide Secure flag.
+    is_https = request.headers.get("x-forwarded-proto") == "https"
     response.set_cookie(
         key=cookie_name,
         value=sid,
         max_age=settings.session_ttl_s,
         httponly=True,
         samesite="lax",
-        # secure=True when behind HTTPS (Caddy)
-        secure=not settings.debug,
+        secure=is_https,
     )
     return response
 

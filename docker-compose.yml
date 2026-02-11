@@ -1,14 +1,18 @@
 # ── BikeShareYEG — Full Stack ────────────────────────────────
 #
+# Designed to run alongside other compose stacks on the same host.
+# BikeShareYEG's Caddy listens on 127.0.0.1:8443 (plain HTTP).
+# The host's main Caddy handles TLS and forwards to us.
+#
 # Usage:
 #   cp .env.example .env          # review & edit
 #   docker compose up -d --build  # start everything
 #   docker compose logs -f        # watch logs
 #
 # Architecture:
-#   caddy (443/80) → web (3000)  for HTML/JS
-#                  → api (8000)  for /api/* and /health
-#   api → otp (8080)             for transit routing
+#   host Caddy (443) → bikeshareyeg-caddy (8443) → web (3000)  HTML/JS
+#                                                 → api (8000)  /api/*
+#   api → otp (8080)  transit routing
 #
 # Data:
 #   ./data/ is bind-mounted into the api container so station data,
@@ -23,12 +27,11 @@ services:
     container_name: bikeshareyeg-api
     env_file: .env
     environment:
-      # Override OTP URL to use Docker-internal hostname
       - OTP_URL=http://otp:8080
     volumes:
       - ./data:/app/data
-    expose:
-      - "8000"
+    networks:
+      - bikeshare
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
@@ -41,6 +44,11 @@ services:
         limits:
           memory: 1536M
           cpus: "1.5"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ── Frontend (Next.js standalone) ─────────────────────────
   web:
@@ -54,8 +62,8 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - HOSTNAME=0.0.0.0
-    expose:
-      - "3000"
+    networks:
+      - bikeshare
     depends_on:
       api:
         condition: service_healthy
@@ -65,18 +73,23 @@ services:
         limits:
           memory: 512M
           cpus: "0.5"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ── OpenTripPlanner (transit routing) ─────────────────────
   otp:
     image: docker.io/opentripplanner/opentripplanner:2.6.0
     container_name: bikeshareyeg-otp
-    expose:
-      - "8080"
     volumes:
       - ./data/otp:/var/opentripplanner
     environment:
       - JAVA_OPTS=-Xmx1536M -Xms512M
     command: ["--load", "--serve"]
+    networks:
+      - bikeshare
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sf", "-X", "POST", "-H", "Content-Type: application/json", "-d", "{\"query\":\"{__typename}\"}", "http://localhost:8080/otp/routers/default/index/graphql"]
@@ -89,21 +102,24 @@ services:
         limits:
           memory: 2G
           cpus: "1.0"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # ── Caddy (reverse proxy + auto-HTTPS) ────────────────────
+  # ── Caddy (internal reverse proxy — no TLS) ───────────────
+  # The host's main Caddy handles TLS termination and forwards
+  # to this container on 127.0.0.1:8443.
   caddy:
     image: caddy:2-alpine
     container_name: bikeshareyeg-caddy
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"   # HTTP/3
-    environment:
-      - DOMAIN=${DOMAIN:-localhost}
+      - "127.0.0.1:8443:8080"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+    networks:
+      - bikeshare
     depends_on:
       api:
         condition: service_healthy
@@ -115,7 +131,12 @@ services:
         limits:
           memory: 128M
           cpus: "0.25"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-volumes:
-  caddy_data:     # TLS certificates
-  caddy_config:   # Caddy runtime config
+networks:
+  bikeshare:
+    driver: bridge
