@@ -189,25 +189,25 @@ export function DocsContent({ activeId, onActiveChange, scrollToId, onScrollHand
     const el = document.getElementById(scrollToId);
     if (container && el) {
       const top = el.offsetTop - 80;
-      container.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      container.scrollTo({ top: Math.max(0, top), behavior: "instant" });
     }
     onScrollHandled();
   }, [scrollToId, onScrollHandled]);
 
   return (
     <div ref={mainRef} className="flex-1 overflow-y-auto overscroll-contain bg-white">
+      {/* Hero banner — full width */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/docs/hero-banner.jpg"
+        alt="BikeShareYEG — Edmonton's bike-share planning tool"
+        decoding="async"
+        className="w-full h-auto"
+      />
+
       <div className="max-w-3xl mx-auto px-6 sm:px-10 py-8 pb-32">
-        {/* Hero */}
+        {/* Hero text */}
         <div className="mb-8 pb-8 border-b border-gray-200">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/docs/hero-banner.png"
-            alt="BikeShareYEG — Edmonton's bike-share planning tool"
-            width={960}
-            height={300}
-            decoding="async"
-            className="w-full h-auto rounded-lg border border-gray-200 mb-6"
-          />
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight">
             BikeShareYEG Documentation
           </h1>

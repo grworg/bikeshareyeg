@@ -769,8 +769,9 @@ ${p(`This architecture keeps the map at 60fps even with the full suitability gri
   ],
 };
 
+// (Proposal content moved to /docs/proposal/ — its own page)
 // ---------------------------------------------------------------------------
-// 9. Future Roadmap
+// 10. Future Roadmap (was 9)
 // ---------------------------------------------------------------------------
 
 const roadmap: DocSection = {
@@ -804,7 +805,7 @@ ${p(`Enable citizens to annotate, comment on, and vote on proposed station locat
 };
 
 // ---------------------------------------------------------------------------
-// 10. About
+// 11. About
 // ---------------------------------------------------------------------------
 
 const about: DocSection = {
@@ -860,6 +861,159 @@ ${p(`This project is built on the shoulders of open data and open-source softwar
 };
 
 // ---------------------------------------------------------------------------
+// References & further reading
+// ---------------------------------------------------------------------------
+
+const references: DocSection = {
+  id: "references",
+  title: "References & Further Reading",
+  shortTitle: "References",
+  content: `
+${p(`The approach used by BikeShareYEG draws on a body of academic research in bike-share network optimization, spatial suitability analysis, and open-data-driven urban planning. Below is a curated list of relevant papers, theses, reports, and planning documents.`)}
+  `,
+  children: [
+    {
+      id: "ref-optimization",
+      title: "Station Placement & Network Optimization",
+      content: `
+<ul class="space-y-4 my-3">
+  <li>
+    <strong>Algorithmic Approaches for Optimization Problems in Bike Sharing Systems</strong><br/>
+    <span class="text-gray-500">Kloimuellner — TU Wien, 2019</span><br/>
+    Covers station planning under budget constraints using hierarchical clustering, GRASP heuristics, variable neighbourhood search, and maximal covering location approaches for networks of up to 700 stations. The closest methodological parallel to BikeShareYEG's MCLP + CP-SAT approach.<br/>
+    <a href="https://www.ac.tuwien.ac.at/files/pub/kloimuellner_19.pdf" target="_blank" rel="noopener" class="text-blue-600 hover:underline">PDF (TU Wien)</a>
+  </li>
+  <li>
+    <strong>Optimizing the Locations of Bike-Sharing Stations Using GPS-Based Trip Data: A Spatio-Temporal Demand Coverage Approach</strong><br/>
+    <span class="text-gray-500">Caliskan — Lund University, 2022</span><br/>
+    Two-stage framework using genetic algorithms in Python to maximize spatio-temporal demand coverage. Compares favourably against POI-based and population density methods using a Shanghai case study.<br/>
+    <a href="https://lup.lub.lu.se/student-papers/search/publication/9096855" target="_blank" rel="noopener" class="text-blue-600 hover:underline">Lund University Publications</a>
+  </li>
+  <li>
+    <strong>Optimizing Urban Bike-Sharing Systems: A Stochastic Mathematical Model</strong><br/>
+    <span class="text-gray-500">PMC / NCBI, 2024</span><br/>
+    Stochastic model for station allocation and path network design with sensitivity analysis on cost management. Case study on Vienna's system.<br/>
+    <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC12789229/" target="_blank" rel="noopener" class="text-blue-600 hover:underline">PubMed Central</a>
+  </li>
+  <li>
+    <strong>A Multi-Periodic Optimization Modeling Approach for the Bicycle Sharing Network</strong><br/>
+    <span class="text-gray-500">IMECS, 2014</span><br/>
+    Pure integer linear program for strategic network design considering demand patterns, station proximity, and budget constraints with stochastic network flow modelling.<br/>
+    <a href="https://www.iaeng.org/publication/IMECS2014/IMECS2014_pp1226-1231.pdf" target="_blank" rel="noopener" class="text-blue-600 hover:underline">PDF (IAENG)</a>
+  </li>
+  <li>
+    <strong>Location-Allocation Models for Bike-Share Station Placement</strong><br/>
+    <span class="text-gray-500">arXiv, 2022</span><br/>
+    GIS-integrated location-allocation models using demand distribution, bike lanes, metro stations, and points of interest as features for optimizing station locations.<br/>
+    <a href="https://arxiv.org/pdf/2204.07875" target="_blank" rel="noopener" class="text-blue-600 hover:underline">arXiv</a>
+  </li>
+  <li>
+    <strong>Overview of Shared-Bike Repositioning Optimization with Artificial Intelligence</strong><br/>
+    <span class="text-gray-500">Interdisciplinary Transportation Review — Oxford Academic, 2023</span><br/>
+    Comprehensive review of AI-based repositioning strategies covering heuristic search and machine learning approaches for both docked and dockless systems.<br/>
+    <a href="https://academic.oup.com/iti/article/doi/10.1093/iti/liad008/7223391" target="_blank" rel="noopener" class="text-blue-600 hover:underline">Oxford Academic</a>
+  </li>
+</ul>
+      `,
+    },
+    {
+      id: "ref-suitability",
+      title: "Suitability Analysis & Multi-Criteria Methods",
+      content: `
+<ul class="space-y-4 my-3">
+  <li>
+    <strong>GIS-MCDA Framework for Geofence Planning in Dockless Bike-Sharing</strong><br/>
+    <span class="text-gray-500">Lund University, 2022 (Zürich case study)</span><br/>
+    Combines Analytic Hierarchy Process (AHP) with GIS to evaluate station suitability using weighted criteria. Found that distance to nearest business centre had the strongest influence on demand (Pearson r = −0.79). Methodologically very close to BikeShareYEG's multi-factor suitability surface.<br/>
+    <a href="https://lup.lub.lu.se/student-papers/record/9059107/file/9059108.pdf" target="_blank" rel="noopener" class="text-blue-600 hover:underline">PDF (Lund University)</a>
+  </li>
+  <li>
+    <strong>Systematic Review of Bike-Sharing Station Location Techniques</strong><br/>
+    <span class="text-gray-500">Semantic Scholar</span><br/>
+    Categorizes the field into mathematical algorithms, multi-criteria decision making (MCDM), and GIS-based modelling. Identifies four criteria categories — bike network, operator, user, and city infrastructure — with sub-criteria derived from literature.<br/>
+    <a href="https://pdfs.semanticscholar.org/1026/951faff945ba35a0b212a28b8364f96b9108.pdf" target="_blank" rel="noopener" class="text-blue-600 hover:underline">PDF (Semantic Scholar)</a>
+  </li>
+</ul>
+      `,
+    },
+    {
+      id: "ref-canadian",
+      title: "Canadian Planning Context",
+      content: `
+<ul class="space-y-4 my-3">
+  <li>
+    <strong>City of Edmonton Bike Plan</strong><br/>
+    <span class="text-gray-500">City of Edmonton</span><br/>
+    The city's official cycling infrastructure plan, which explicitly recommends conducting a bike-share feasibility study — including docked vs. dockless comparisons, cost-benefit analysis, and assessment of high-density areas near LRT stations. Over 11,000 Edmontonians participated in public engagement.<br/>
+    <a href="https://www.edmonton.ca/transportation/PDF/BikePlan_CityofEdmonton.pdf" target="_blank" rel="noopener" class="text-blue-600 hover:underline">Bike Plan (PDF)</a> ·
+    <a href="https://www.edmonton.ca/sites/default/files/public-files/BikePlan-ImplementationGuide.pdf" target="_blank" rel="noopener" class="text-blue-600 hover:underline">Implementation Guide (PDF)</a>
+  </li>
+  <li>
+    <strong>Halifax Shared Micromobility Study</strong><br/>
+    <span class="text-gray-500">City of Halifax — in progress</span><br/>
+    Ongoing study identifying goals and best practices for bike share and shared micromobility in Halifax.<br/>
+    <a href="https://cityofhalifax.ca.engagementhq.com/shared-micromobility" target="_blank" rel="noopener" class="text-blue-600 hover:underline">Halifax Engagement Hub</a>
+  </li>
+  <li>
+    <strong>Bike Share Toronto — Annual Reports</strong><br/>
+    <span class="text-gray-500">City of Toronto / Toronto Parking Authority</span><br/>
+    Operating data and ridership reports from Canada's largest bike-share system (7,000+ bikes, 700+ stations). Useful as a benchmark for network sizing and demand patterns.<br/>
+    <a href="https://bikesharetoronto.com/" target="_blank" rel="noopener" class="text-blue-600 hover:underline">bikesharetoronto.com</a>
+  </li>
+  <li>
+    <strong>BIXI Montréal — Open Data</strong><br/>
+    <span class="text-gray-500">BIXI Montréal</span><br/>
+    Trip history and station data published as open data since 2014. Widely used in academic research for demand modelling and rebalancing optimization.<br/>
+    <a href="https://bixi.com/en/open-data/" target="_blank" rel="noopener" class="text-blue-600 hover:underline">BIXI Open Data</a>
+  </li>
+  <li>
+    <strong>Mobi by Shaw Go (Vancouver) — Now Evolve by HOPR</strong><br/>
+    <span class="text-gray-500">TransLink / City of Vancouver</span><br/>
+    Vancouver's public bike-share system, integrated with the TransLink transit network. Provides a real-world example of bike-share/transit integration in a Canadian West Coast city.<br/>
+    <a href="https://www.mobibikes.ca/" target="_blank" rel="noopener" class="text-blue-600 hover:underline">mobibikes.ca</a>
+  </li>
+</ul>
+      `,
+    },
+    {
+      id: "ref-tools",
+      title: "Tools & Technologies",
+      content: `
+<ul class="space-y-4 my-3">
+  <li>
+    <strong>Google OR-Tools — CP-SAT Solver</strong><br/>
+    The constraint programming solver used by BikeShareYEG's MCLP optimizer. Documentation covers modelling techniques for facility location and covering problems.<br/>
+    <a href="https://developers.google.com/optimization/cp/cp_solver" target="_blank" rel="noopener" class="text-blue-600 hover:underline">OR-Tools Documentation</a> ·
+    <a href="https://d-krupke.github.io/cpsat-primer/" target="_blank" rel="noopener" class="text-blue-600 hover:underline">CP-SAT Primer (d-krupke)</a>
+  </li>
+  <li>
+    <strong>Uber H3 — Hexagonal Hierarchical Spatial Index</strong><br/>
+    The hexagonal grid system used for the suitability surface. Resolution 9 cells (~0.105 km²) provide a good balance between precision and computation cost.<br/>
+    <a href="https://h3geo.org/" target="_blank" rel="noopener" class="text-blue-600 hover:underline">h3geo.org</a>
+  </li>
+  <li>
+    <strong>OpenTripPlanner</strong><br/>
+    Open-source multi-modal trip planner used for transit routing. Ingests GTFS feeds and OSM data.<br/>
+    <a href="https://www.opentripplanner.org/" target="_blank" rel="noopener" class="text-blue-600 hover:underline">opentripplanner.org</a>
+  </li>
+  <li>
+    <strong>Overpass API (OpenStreetMap)</strong><br/>
+    The query engine for extracting infrastructure data (transit stops, bike paths, POIs) from OpenStreetMap. All suitability factors and map overlays are sourced through Overpass.<br/>
+    <a href="https://wiki.openstreetmap.org/wiki/Overpass_API" target="_blank" rel="noopener" class="text-blue-600 hover:underline">OSM Wiki — Overpass API</a>
+  </li>
+  <li>
+    <strong>Statistics Canada — 2021 Census of Population</strong><br/>
+    Dissemination Area boundaries and population counts used for the population density suitability factor and overlay.<br/>
+    <a href="https://www12.statcan.gc.ca/census-recensement/2021/dp-pd/prof/index.cfm?Lang=E" target="_blank" rel="noopener" class="text-blue-600 hover:underline">Census Profile</a> ·
+    <a href="https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/index2021-eng.cfm?year=21" target="_blank" rel="noopener" class="text-blue-600 hover:underline">Boundary Files</a>
+  </li>
+</ul>
+      `,
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // Export all sections
 // ---------------------------------------------------------------------------
 
@@ -874,4 +1028,5 @@ export const DOC_SECTIONS: DocSection[] = [
   underTheHood,
   roadmap,
   about,
+  references,
 ];

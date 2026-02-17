@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { AppMode } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -88,8 +89,6 @@ interface SideNavProps {
 }
 
 export default function SideNav({ mode, onChangeMode }: SideNavProps) {
-  const allItems = [...NAV_ITEMS, DOCS_ITEM];
-
   return (
     <nav className="group/nav w-12 hover:w-[200px] shrink-0 z-40 bg-white shadow-[1px_0_4px_rgba(0,0,0,0.08)] transition-[width] duration-200 ease-out flex flex-col py-2 overflow-hidden">
       {/* Logo + brand */}
@@ -102,8 +101,8 @@ export default function SideNav({ mode, onChangeMode }: SideNavProps) {
         </span>
       </div>
 
-      {/* All nav items inline */}
-      {allItems.map((item) => (
+      {/* App mode nav items */}
+      {NAV_ITEMS.map((item) => (
         <DesktopNavItem
           key={item.mode}
           item={item}
@@ -111,6 +110,20 @@ export default function SideNav({ mode, onChangeMode }: SideNavProps) {
           onClick={() => onChangeMode(item.mode)}
         />
       ))}
+
+      {/* Docs — links to /docs route */}
+      <Link
+        href="/docs"
+        title={DOCS_ITEM.label}
+        className="flex items-center gap-3 mx-1 px-1 h-10 rounded-lg transition-colors shrink-0 overflow-hidden text-[#5f6368] hover:bg-[var(--color-surface-hover)]"
+      >
+        <div className="w-9 h-9 shrink-0 flex items-center justify-center">
+          {DOCS_ITEM.icon}
+        </div>
+        <span className="text-[13px] font-medium whitespace-nowrap opacity-0 group-hover/nav:opacity-100 transition-opacity duration-150 delay-75">
+          {DOCS_ITEM.label}
+        </span>
+      </Link>
     </nav>
   );
 }
@@ -154,11 +167,9 @@ interface MobileTabBarProps {
 }
 
 export function MobileTabBar({ mode, onChangeMode }: MobileTabBarProps) {
-  const allItems = [...NAV_ITEMS, DOCS_ITEM];
-
   return (
     <nav className="fixed bottom-0 left-0 right-0 h-14 bg-white border-t border-[var(--color-border)] flex items-stretch z-50 pb-safe">
-      {allItems.map((item) => {
+      {NAV_ITEMS.map((item) => {
         const active = mode === item.mode;
         return (
           <button
@@ -173,6 +184,13 @@ export function MobileTabBar({ mode, onChangeMode }: MobileTabBarProps) {
           </button>
         );
       })}
+      <Link
+        href="/docs"
+        className="flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors text-[#5f6368]"
+      >
+        <span className="[&>svg]:w-5 [&>svg]:h-5">{DOCS_ITEM.icon}</span>
+        <span className="text-[10px] font-medium">{DOCS_ITEM.shortLabel}</span>
+      </Link>
     </nav>
   );
 }
