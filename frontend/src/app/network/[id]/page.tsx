@@ -36,7 +36,7 @@ export default function SharedNetworkPage() {
         if (stations.length > 0) {
           const avgLat = stations.reduce((s, st) => s + st.lat, 0) / stations.length;
           const avgLng = stations.reduce((s, st) => s + st.lng, 0) / stations.length;
-          setFlyTo({ latitude: avgLat, longitude: avgLng, zoom: 12 });
+          setFlyTo({ latitude: avgLat, longitude: avgLng, zoom: 12, _ts: Date.now() });
         }
       })
       .catch((err) => {
@@ -305,7 +305,7 @@ export default function SharedNetworkPage() {
                 <button
                   key={st.id}
                   className="w-full text-left px-3 py-2 rounded-md hover:bg-[#f1f3f4] transition-colors"
-                  onClick={() => setFlyTo({ latitude: st.lat, longitude: st.lng, zoom: 16 })}
+                  onClick={() => setFlyTo({ latitude: st.lat, longitude: st.lng, zoom: 16, _ts: Date.now() })}
                 >
                   <p className="text-[12px] font-medium text-[#202124] truncate">
                     {st.name || "Unnamed station"}
