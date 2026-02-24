@@ -19,6 +19,37 @@
 #   overpass cache, overlays, and GTFS files persist across restarts.
 
 services:
+  # ── PostgreSQL (shared network storage) ────────────────────
+  postgres:
+    image: postgres:17-alpine
+    container_name: bikeshareyeg-postgres
+    environment:
+      POSTGRES_DB: bikeshareyeg
+      POSTGRES_USER: bikeshare
+      POSTGRES_PASSWORD: ${BIKESHARE_POSTGRES_PASSWORD:-bikeshare_dev}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks:
+      - bikeshare
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bikeshare -d bikeshareyeg"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ── API (FastAPI + Gunicorn) ──────────────────────────────
   api:
     image: bikeshareyeg-api:latest
@@ -29,10 +60,14 @@ services:
     env_file: .env
     environment:
       - OTP_URL=http://otp:8080
+      - BIKESHARE_DATABASE_URL=postgresql://bikeshare:${BIKESHARE_POSTGRES_PASSWORD:-bikeshare_dev}@postgres:5432/bikeshareyeg
     volumes:
       - ./data:/app/data
     networks:
       - bikeshare
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
@@ -138,6 +173,9 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  pgdata:
 
 networks:
   bikeshare:

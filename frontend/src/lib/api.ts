@@ -14,6 +14,8 @@ import type {
   PlannerDensityScales,
   PlannerCoverage,
   PlannerFactorInfo,
+  SavedNetwork,
+  SharedNetworkResponse,
 } from "./types";
 
 const API_BASE = "/api";
@@ -283,4 +285,76 @@ export async function getOverlay(
   overlayMemCache[key] = data;
   _writeOverlayToStorage(key, data);
   return data;
+}
+
+// ---------------------------------------------------------------------------
+// Shared Networks
+// ---------------------------------------------------------------------------
+
+export interface ShareNetworkResult {
+  id: string;
+  name: string;
+  station_count: number;
+}
+
+export async function shareNetwork(
+  ownerTokenHash: string,
+  network: SavedNetwork,
+): Promise<ShareNetworkResult> {
+  return fetchJSON<ShareNetworkResult>("/networks", {
+    method: "POST",
+    body: JSON.stringify({
+      owner_token_hash: ownerTokenHash,
+      name: network.name,
+      description: network.description ?? "",
+      author: network.author ?? "",
+      data: network,
+    }),
+  });
+}
+
+export async function getSharedNetwork(
+  id: string,
+): Promise<SharedNetworkResponse> {
+  return fetchJSON<SharedNetworkResponse>(`/networks/${id}`);
+}
+
+export async function updateSharedNetwork(
+  id: string,
+  ownerToken: string,
+  updates: { name?: string; description?: string; author?: string; data?: SavedNetwork },
+): Promise<{ status: string; id: string }> {
+  const res = await fetch(`${API_BASE}/networks/${id}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Owner-Token": ownerToken,
+    },
+    credentials: "include",
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `API ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteSharedNetwork(
+  id: string,
+  ownerToken: string,
+): Promise<{ status: string; id: string }> {
+  const res = await fetch(`${API_BASE}/networks/${id}`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Owner-Token": ownerToken,
+    },
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `API ${res.status}`);
+  }
+  return res.json();
 }

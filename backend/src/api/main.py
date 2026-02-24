@@ -25,6 +25,7 @@ from src.api.overlays import router as overlays_router
 from src.api.elevation import router as elevation_router
 from src.api.planner import router as planner_router
 from src.api.planner_paths import router as planner_paths_router
+from src.api.networks import router as networks_router
 from src.config import settings, EDMONTON_CENTER
 from src.data.stations import get_stations, set_stations, reset_stations, clear_stations, create_session
 
@@ -106,6 +107,7 @@ app.include_router(overlays_router)
 app.include_router(elevation_router)
 app.include_router(planner_router)
 app.include_router(planner_paths_router)
+app.include_router(networks_router)
 
 # ---------------------------------------------------------------------------
 # Apply rate limits to sub-router endpoints
@@ -126,6 +128,10 @@ for route in app.routes:
         route.endpoint = limiter.limit(settings.rate_limit_step)(endpoint)
     elif path == "/api/routes" and "POST" in methods:
         route.endpoint = limiter.limit(settings.rate_limit_routes)(endpoint)
+    elif path == "/api/networks" and "POST" in methods:
+        route.endpoint = limiter.limit(settings.rate_limit_share_create)(endpoint)
+    elif path.startswith("/api/networks/") and "GET" in methods:
+        route.endpoint = limiter.limit(settings.rate_limit_share_read)(endpoint)
 
 
 # ---------------------------------------------------------------------------

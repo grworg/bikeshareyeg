@@ -269,6 +269,26 @@ export interface SavedNetwork {
   densityScales?: PlannerDensityScales;
   /** Ordered audit log of every action that built this network. */
   buildLog?: BuildLogEntry[];
+  /** Server UUID if this network has been published for sharing. */
+  shareId?: string;
+  /** ISO-8601 timestamp of when the network was published. */
+  sharedAt?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Shared Network (server-side response)
+// ---------------------------------------------------------------------------
+
+export interface SharedNetworkResponse {
+  id: string;
+  name: string;
+  description: string;
+  author: string;
+  station_count: number;
+  data: SavedNetwork;
+  created_at: string;
+  updated_at: string;
+  view_count: number;
 }
 
 // ---------------------------------------------------------------------------

@@ -70,6 +70,12 @@ class Settings(BaseSettings):
     # H3 resolution for hex binning (7 = ~5.16 km², 8 = ~0.74 km², 9 = ~0.105 km²)
     h3_resolution: int = 9
 
+    # --- Database (network sharing) ---
+    database_url: str = ""
+    rate_limit_share_create: str = "5/hour"
+    rate_limit_share_read: str = "60/minute"
+    max_network_payload_kb: int = 500
+
     model_config = {"env_file": str(PROJECT_ROOT / ".env"), "env_prefix": "BIKESHARE_"}
 
 
