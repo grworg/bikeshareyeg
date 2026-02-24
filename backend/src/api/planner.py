@@ -19,6 +19,9 @@ from src.optimization.planner import (
     OptimizeConfig,
     optimize_network,
     step_greedy_one,
+    DEFAULT_DECAY_RADII,
+    DEFAULT_DENSITY_SCALES,
+    DEFAULT_WEIGHTS,
 )
 
 router = APIRouter(prefix="/api/planner", tags=["planner"])
@@ -61,23 +64,15 @@ class OptimizeRequest(BaseModel):
     connectivity_radius: float = Field(2000.0, ge=0, le=20000)
     connectivity_strength: float = Field(60.0, ge=0, le=100)
     # Per-factor decay radii (metres) — proximity-scored factors only
-    decay_radii: dict[str, float] = Field(default_factory=lambda: {
-        "lrt": 2000.0, "bike_infra": 1000.0, "transit": 800.0,
-    })
+    decay_radii: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_DECAY_RADII))
     # Density scales — for density-scored POI factors (count at score=1.0)
-    density_scales: dict[str, float] = Field(default_factory=lambda: {
-        "commercial": 30.0, "education": 5.0, "recreation": 8.0,
-    })
+    density_scales: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_DENSITY_SCALES))
     # Factor weights (0-1)
-    weights: dict[str, float] = Field(default_factory=lambda: {
-        "population": 0.8,
-        "lrt": 0.5,
-        "bike_infra": 0.5,
-        "transit": 0.4,
-        "commercial": 0.6,
-        "education": 0.4,
-        "recreation": 0.3,
-    })
+    weights: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
+    # Minimum factor thresholds (non-compensatory constraints).
+    # A hex must meet ALL active thresholds to be a station candidate.
+    # Only keys present are enforced; empty dict = fully compensatory (default).
+    min_thresholds: dict[str, float] = Field(default_factory=dict)
     # Existing stations (seeded LRT docks, etc.) — optimizer works around these
     existing_stations: list[ExistingStation] = Field(default_factory=list)
 
@@ -92,16 +87,10 @@ class StepRequest(BaseModel):
     proximity_discount_strength: float = Field(70.0, ge=0, le=100)
     connectivity_radius: float = Field(2000.0, ge=0, le=20000)
     connectivity_strength: float = Field(60.0, ge=0, le=100)
-    decay_radii: dict[str, float] = Field(default_factory=lambda: {
-        "lrt": 2000.0, "bike_infra": 1000.0, "transit": 800.0,
-    })
-    density_scales: dict[str, float] = Field(default_factory=lambda: {
-        "commercial": 30.0, "education": 5.0, "recreation": 8.0,
-    })
-    weights: dict[str, float] = Field(default_factory=lambda: {
-        "population": 0.8, "lrt": 0.5, "bike_infra": 0.5, "transit": 0.4,
-        "commercial": 0.6, "education": 0.4, "recreation": 0.3,
-    })
+    decay_radii: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_DECAY_RADII))
+    density_scales: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_DENSITY_SCALES))
+    weights: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
+    min_thresholds: dict[str, float] = Field(default_factory=dict)
     existing_stations: list[ExistingStation] = Field(default_factory=list)
 
 
@@ -113,23 +102,16 @@ class StepRequest(BaseModel):
 def list_factors():
     """List available suitability factors with their metadata."""
     engine = _get_engine()
-    return {
-        "factors": [
-            {"key": f.key, "name": f.name, "description": f.description}
-            for f in engine.factors
-        ]
-    }
+    return {"factors": engine.factors}
 
 
 @router.post("/hexgrid/invalidate")
 def invalidate_hexgrid():
-    """Clear the cached hex grid, forcing a fresh computation on next request."""
+    """Clear the cached hex grid, forcing a reload from disk on next request."""
     global _engine
     if _engine is not None:
         _engine._hex_data = None
-        for f in _engine.factors:
-            f._ready = False
-    return {"status": "ok", "message": "Cache cleared"}
+    return {"status": "ok", "message": "Cache cleared — will reload from disk"}
 
 
 @router.get("/hexgrid")
@@ -189,6 +171,7 @@ def run_optimize(req: OptimizeRequest, request: Request):
             decay_radii=req.decay_radii,
             density_scales=req.density_scales,
             weights=req.weights,
+            min_thresholds=req.min_thresholds,
             existing_stations=existing,
         )
         result = optimize_network(hex_grid, config)
@@ -247,6 +230,7 @@ def run_step(req: StepRequest, request: Request):
             decay_radii=req.decay_radii,
             density_scales=req.density_scales,
             weights=req.weights,
+            min_thresholds=req.min_thresholds,
             existing_stations=existing,
         )
         station = step_greedy_one(hex_grid, config)

@@ -97,6 +97,7 @@ interface AppSidebarProps {
   // ── Build History ──
   buildLog: BuildLogEntry[];
   onPreviewSnapshot: (stations: BikeStation[] | null) => void;
+  onRevertToSnapshot: (stations: BikeStation[], buildLog: BuildLogEntry[]) => void;
 
   // ── Docs mode ──
   docsActiveId: string;
@@ -339,6 +340,7 @@ export default function AppSidebar(props: AppSidebarProps) {
                 buildLog={props.buildLog}
                 stations={stations}
                 onPreviewSnapshot={props.onPreviewSnapshot}
+                onRevertToSnapshot={props.onRevertToSnapshot}
               />
             ) : (
               <div className="flex flex-col h-full min-h-0">
@@ -365,6 +367,7 @@ export default function AppSidebar(props: AppSidebarProps) {
           </div>
         </div>
       )}
+
     </div>
   );
 }

@@ -24,6 +24,7 @@ from src.api.routing import router as routing_router
 from src.api.overlays import router as overlays_router
 from src.api.elevation import router as elevation_router
 from src.api.planner import router as planner_router
+from src.api.planner_paths import router as planner_paths_router
 from src.config import settings, EDMONTON_CENTER
 from src.data.stations import get_stations, set_stations, reset_stations, clear_stations, create_session
 
@@ -104,6 +105,7 @@ app.include_router(routing_router)
 app.include_router(overlays_router)
 app.include_router(elevation_router)
 app.include_router(planner_router)
+app.include_router(planner_paths_router)
 
 # ---------------------------------------------------------------------------
 # Apply rate limits to sub-router endpoints

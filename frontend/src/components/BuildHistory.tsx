@@ -19,6 +19,9 @@ export interface BuildHistoryProps {
   stations: BikeStation[];
   /** Called when the user selects a point in history to preview. null = show current. */
   onPreviewSnapshot: (stations: BikeStation[] | null) => void;
+  /** Called when the user wants to revert the network to a specific point in history.
+   *  Receives the snapshot stations and the truncated build log (up to and including the selected entry). */
+  onRevertToSnapshot: (stations: BikeStation[], buildLog: BuildLogEntry[]) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -249,7 +252,7 @@ function ReplayBar({
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function BuildHistory({ buildLog, stations, onPreviewSnapshot }: BuildHistoryProps) {
+export default function BuildHistory({ buildLog, stations, onPreviewSnapshot, onRevertToSnapshot }: BuildHistoryProps) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [replayIdx, setReplayIdx] = useState<number | null>(null); // null = live
   const [isPlaying, setIsPlaying] = useState(false);
@@ -358,6 +361,19 @@ export default function BuildHistory({ buildLog, stations, onPreviewSnapshot }: 
     onPreviewSnapshot(null);
   }, [onPreviewSnapshot, playTimerRef]);
 
+  const handleRevert = useCallback(() => {
+    if (replayIdx === null) return;
+    const snapshotStations = snapshots[replayIdx] ?? [];
+    const truncatedLog = buildLog.slice(0, replayIdx + 1);
+    // Exit replay mode
+    if (playTimerRef.current) clearInterval(playTimerRef.current);
+    setIsPlaying(false);
+    setReplayIdx(null);
+    onPreviewSnapshot(null);
+    // Commit the revert
+    onRevertToSnapshot(snapshotStations, truncatedLog);
+  }, [replayIdx, snapshots, buildLog, onPreviewSnapshot, onRevertToSnapshot, playTimerRef]);
+
   // Cleanup on unmount
   // (using useMemo ref pattern to avoid adding effect dep)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -406,6 +422,13 @@ export default function BuildHistory({ buildLog, stations, onPreviewSnapshot }: 
             Viewing step {replayIdx + 1} of {buildLog.length}
           </span>
           <div className="flex-1" />
+          <button
+            onClick={handleRevert}
+            className="text-[10px] font-medium text-white bg-[#e65100] hover:bg-[#bf360c] rounded px-2 py-0.5 transition-colors"
+            title="Discard all actions after this point and revert the network to this state"
+          >
+            Revert to here
+          </button>
           <button
             onClick={handleReset}
             className="text-[10px] font-medium text-[#f57f17] hover:text-[#e65100] transition-colors"

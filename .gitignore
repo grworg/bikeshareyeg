@@ -44,6 +44,13 @@ data/otp/gtfs.zip
 # Generated overlay data (regenerate with scripts/process-census-data.py)
 data/overlays/
 
+# Precomputed hex grid (regenerate with scripts/precompute-hexgrid.py)
+data/hexgrid.geojson
+
+# OSMnx road graph cache
+data/cache/*.graphml
+data/cache/*.pkl
+
 # Overpass API cache (auto-fetched on first run)
 data/overpass_cache/
 

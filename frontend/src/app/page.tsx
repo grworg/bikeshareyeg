@@ -10,6 +10,11 @@ import OverlayControls from "@/components/OverlayControls";
 import AppModal, { type ModalState } from "@/components/Modal";
 import { DocsContent } from "@/components/DocsView";
 import { useIsMobile } from "@/lib/useMediaQuery";
+import {
+  DEFAULT_DECAY_RADII,
+  DEFAULT_DENSITY_SCALES,
+  ZERO_WEIGHTS,
+} from "@/lib/suitability";
 import type {
   AppMode,
   GeocodedPlace,
@@ -150,16 +155,9 @@ export default function Home() {
   const [loadingOverlays, setLoadingOverlays] = useState<Set<OverlayKey>>(() => new Set());
 
   // ---- Planner state ----
-  const [plannerWeights, setPlannerWeights] = useState<PlannerWeights>({
-    population: 0, lrt: 0, bike_infra: 0, transit: 0,
-    commercial: 0, education: 0, recreation: 0,
-  });
-  const [decayRadii, setDecayRadii] = useState<PlannerDecayRadii>({
-    lrt: 2000, bike_infra: 200, transit: 800,
-  });
-  const [densityScales, setDensityScales] = useState<PlannerDensityScales>({
-    commercial: 30, education: 5, recreation: 8,
-  });
+  const [plannerWeights, setPlannerWeights] = useState<PlannerWeights>({ ...ZERO_WEIGHTS });
+  const [decayRadii, setDecayRadii] = useState<PlannerDecayRadii>({ ...DEFAULT_DECAY_RADII });
+  const [densityScales, setDensityScales] = useState<PlannerDensityScales>({ ...DEFAULT_DENSITY_SCALES });
   const [plannerConfig, setPlannerConfig] = useState<PlannerConfig>({
     algorithm: "iterative_mclp",
     batchSize: 5,
@@ -174,6 +172,7 @@ export default function Home() {
     proximityDiscountStrength: 70,
     connectivityRadius: 2000,
     connectivityStrength: 60,
+    minThresholds: {},
   });
   const [showSuitability, setShowSuitability] = useState(true);
   const [suitabilityData, setSuitabilityData] = useState<GeoJSON.FeatureCollection | null>(null);
@@ -230,7 +229,7 @@ export default function Home() {
   const loadingRef = useRef(new Set<OverlayKey>());
   useEffect(() => {
     for (const key of activeOverlays) {
-      if (key === "docks") continue;
+      if (key === "docks" || key === "accessibility") continue;
       if (overlayData[key]) continue;
       if (loadingRef.current.has(key)) continue;
 
@@ -517,6 +516,7 @@ export default function Home() {
           connectivity_radius: plannerConfig.connectivityRadius,
           connectivity_strength: plannerConfig.connectivityStrength,
           decay_radii: decayRadii, density_scales: densityScales, weights: plannerWeights,
+          min_thresholds: plannerConfig.minThresholds ?? {},
           existing_stations: stations.map((s) => ({ lat: s.lat, lng: s.lng, capacity: s.capacity })),
         });
         setPlannerCoverage(result.coverage); setGeneratedStations(result.stations);
@@ -554,6 +554,7 @@ export default function Home() {
           connectivity_radius: plannerConfig.connectivityRadius,
           connectivity_strength: plannerConfig.connectivityStrength,
           decay_radii: decayRadii, density_scales: densityScales, weights: plannerWeights,
+          min_thresholds: plannerConfig.minThresholds ?? {},
           existing_stations: stations.map((s) => ({ lat: s.lat, lng: s.lng, capacity: s.capacity })),
         });
 
@@ -726,15 +727,9 @@ export default function Home() {
       undoRedo.reset({ stations: network.stations, buildLog: network.buildLog ?? [] });
       setPlannerConfig(network.plannerConfig);
       // Backfill missing keys from older saved networks that predate new factors
-      const defaultWeights: PlannerWeights = {
-        population: 0, lrt: 0, bike_infra: 0, transit: 0,
-        commercial: 0, education: 0, recreation: 0,
-      };
-      const defaultRadii: PlannerDecayRadii = { lrt: 2000, bike_infra: 200, transit: 800 };
-      const defaultScales: PlannerDensityScales = { commercial: 30, education: 5, recreation: 8 };
-      setPlannerWeights({ ...defaultWeights, ...network.plannerWeights });
-      setDecayRadii({ ...defaultRadii, ...network.decayRadii });
-      setDensityScales({ ...defaultScales, ...network.densityScales });
+      setPlannerWeights({ ...ZERO_WEIGHTS, ...network.plannerWeights });
+      setDecayRadii({ ...DEFAULT_DECAY_RADII, ...network.decayRadii });
+      setDensityScales({ ...DEFAULT_DENSITY_SCALES, ...network.densityScales });
       setActiveNetworkId(network.id);
       setActiveNetworkName(network.name);
       saveStations(network.stations).catch((err) => console.error("Failed to sync loaded stations:", err));
@@ -747,15 +742,16 @@ export default function Home() {
   const handleNewNetwork = useCallback(() => {
     const doNew = () => {
       undoRedo.reset({ stations: [], buildLog: [] });
-      setPlannerWeights({ population: 0, lrt: 0, bike_infra: 0, transit: 0, commercial: 0, education: 0, recreation: 0 });
-      setDecayRadii({ lrt: 2000, bike_infra: 200, transit: 800 });
-      setDensityScales({ commercial: 30, education: 5, recreation: 8 });
+      setPlannerWeights({ ...ZERO_WEIGHTS });
+      setDecayRadii({ ...DEFAULT_DECAY_RADII });
+      setDensityScales({ ...DEFAULT_DENSITY_SCALES });
       setPlannerConfig({
         algorithm: "iterative_mclp", batchSize: 5, numStations: 40,
         coverageRadiusM: 1000, minSpacingM: 800, totalBikes: 600,
         minDocksPerStation: 15, maxDocksPerStation: 30, targetFillPct: 0.5,
         proximityDiscountRadius: 500, proximityDiscountStrength: 70,
         connectivityRadius: 2000, connectivityStrength: 60,
+        minThresholds: {},
       });
       setActiveNetworkId(null);
       setActiveNetworkName("Untitled Network");
@@ -779,6 +775,14 @@ export default function Home() {
       doNew();
     }
   }, [stations.length, undoRedo, setMode, setModal]);
+
+  /** Revert the network to a specific point in the build history. */
+  const handleRevertToSnapshot = useCallback((snapshotStations: BikeStation[], truncatedLog: BuildLogEntry[]) => {
+    undoRedo.push({ stations: snapshotStations, buildLog: truncatedLog });
+    saveStations(snapshotStations).catch((err) => console.error("Failed to sync reverted stations:", err));
+    setGeneratedStations(null);
+    setPlannerCoverage(null);
+  }, [undoRedo]);
 
   /** Rename the active network (in state; persisted on next save). */
   const handleRenameNetwork = useCallback((name: string) => {
@@ -857,6 +861,7 @@ export default function Home() {
       // Build History
       buildLog={buildLog}
       onPreviewSnapshot={setPreviewStations}
+      onRevertToSnapshot={handleRevertToSnapshot}
       // Docs
       docsActiveId={docsActiveId}
       onDocsNavigate={handleDocsNavigate}
@@ -965,7 +970,7 @@ export default function Home() {
       </div>
 
       {/* Map / docs: fixed left edge, never resizes on nav hover */}
-      <div className="absolute top-0 right-0 bottom-0" style={{ left: panelLeft }}>
+      <div className="absolute top-0 right-0 bottom-0 flex flex-col" style={{ left: panelLeft }}>
         {mode === "docs" ? docsContent : mapContent}
       </div>
 

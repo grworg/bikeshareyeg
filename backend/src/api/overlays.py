@@ -63,6 +63,22 @@ relation["route"="bus"]({BBOX});
 way(r)({BBOX});
 out geom;
 """,
+    "motorway": f"""
+[out:json][timeout:30];
+(
+  way["highway"="motorway"]({BBOX});
+  way["highway"="motorway_link"]({BBOX});
+);
+out geom;
+""",
+    "trunk": f"""
+[out:json][timeout:30];
+(
+  way["highway"="trunk"]({BBOX});
+  way["highway"="trunk_link"]({BBOX});
+);
+out geom;
+""",
 }
 
 # POI overlay queries — use `out center;` so ways/relations return a single
@@ -141,7 +157,7 @@ def _overpass_ways_to_geojson(data: dict, layer: str) -> dict:
 
 def _pick_tags(tags: dict) -> dict:
     """Keep a small subset of tags for the frontend tooltip."""
-    keep = ("name", "highway", "railway", "cycleway", "bicycle", "surface", "ref", "operator")
+    keep = ("name", "highway", "railway", "cycleway", "bicycle", "surface", "ref", "operator", "maxspeed")
     return {k: v for k, v in tags.items() if k in keep}
 
 
@@ -236,6 +252,18 @@ def overlay_bike():
 def overlay_bus():
     """Bus route way segments (deduplicated) in Edmonton."""
     return _get_overlay("bus")
+
+
+@router.get("/motorway")
+def overlay_motorway():
+    """Motorways and motorway links (freeways, on/off ramps) — excluded from cycling graph."""
+    return _get_overlay("motorway")
+
+
+@router.get("/trunk")
+def overlay_trunk():
+    """Trunk roads and trunk links (high-speed arterials) — excluded from cycling graph."""
+    return _get_overlay("trunk")
 
 
 # ---------------------------------------------------------------------------

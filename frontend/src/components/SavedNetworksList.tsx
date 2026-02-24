@@ -61,7 +61,8 @@ export default function SavedNetworksList({ onLoad, activeNetworkId }: SavedNetw
             return (
             <div
               key={n.id}
-              className={`px-5 py-3 border-b border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors ${isActive ? "bg-[#e8f0fe]/40" : ""}`}
+              className={`px-5 py-3 border-b border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer ${isActive ? "bg-[#e8f0fe]/40" : ""}`}
+              onClick={() => { if (editingId !== n.id) onLoad(n); }}
             >
               {/* Name row */}
               <div className="flex items-start gap-2">
@@ -71,6 +72,7 @@ export default function SavedNetworksList({ onLoad, activeNetworkId }: SavedNetw
                 {editingId === n.id ? (
                   <form
                     className="flex-1 flex gap-1.5"
+                    onClick={(e) => e.stopPropagation()}
                     onSubmit={(e) => { e.preventDefault(); handleRename(n.id); }}
                   >
                     <input
@@ -88,14 +90,9 @@ export default function SavedNetworksList({ onLoad, activeNetworkId }: SavedNetw
                     </button>
                   </form>
                 ) : (
-                  <button
-                    onClick={() => onLoad(n)}
-                    className="flex-1 text-left group"
-                  >
-                    <p className="text-[13px] font-medium text-[var(--color-fg)] group-hover:text-[var(--color-blue)] transition-colors">
-                      {n.name}
-                    </p>
-                  </button>
+                  <p className="flex-1 text-[13px] font-medium text-[var(--color-fg)]">
+                    {n.name}
+                  </p>
                 )}
               </div>
 
@@ -113,16 +110,16 @@ export default function SavedNetworksList({ onLoad, activeNetworkId }: SavedNetw
                   })}
                 </span>
                 <div className="flex-1" />
-                {/* Actions */}
+                {/* Actions — stop propagation so clicks don't trigger onLoad */}
                 <button
-                  onClick={() => { setEditingId(n.id); setEditName(n.name); }}
+                  onClick={(e) => { e.stopPropagation(); setEditingId(n.id); setEditName(n.name); }}
                   className="text-[11px] text-[var(--color-secondary)] hover:text-[var(--color-fg)] transition-colors"
                   title="Rename"
                 >
                   Rename
                 </button>
                 {confirmDeleteId === n.id ? (
-                  <span className="flex items-center gap-1">
+                  <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={() => handleDelete(n.id)}
                       className="text-[11px] text-red-600 font-medium hover:text-red-700"
@@ -138,7 +135,7 @@ export default function SavedNetworksList({ onLoad, activeNetworkId }: SavedNetw
                   </span>
                 ) : (
                   <button
-                    onClick={() => setConfirmDeleteId(n.id)}
+                    onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(n.id); }}
                     className="text-[11px] text-[var(--color-secondary)] hover:text-red-600 transition-colors"
                     title="Delete"
                   >

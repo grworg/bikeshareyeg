@@ -19,6 +19,7 @@ dependencies = [
     "fiona>=1.10",
     # Network analysis
     "networkx>=3.4",
+    "scikit-learn>=1.5",
     # Simulation & optimization
     "simpy>=4.1",
     "ortools>=9.9",

@@ -2,6 +2,11 @@
 
 import { useCallback, useState } from "react";
 import type { PlannerWeights, PlannerDecayRadii, PlannerDensityScales, PlannerConfig, PlannerCoverage, PlannerAlgorithm } from "@/lib/types";
+import {
+  DEFAULT_DECAY_RADII,
+  DEFAULT_DENSITY_SCALES,
+  ZERO_WEIGHTS,
+} from "@/lib/suitability";
 import Accordion from "@/components/Accordion";
 
 // ---------------------------------------------------------------------------
@@ -49,37 +54,37 @@ const HELP: Record<string, HelpEntry> = {
   population: {
     title: "Population Density",
     intuitive: "Prioritises placing stations where more people live. Higher values push the network toward residential neighbourhoods with the most potential riders.",
-    technical: "Uses 2021 Census data at the Dissemination Area level (the finest geographic unit available). Each area on the map is scored 0\u2013100% based on its population per km\u00B2 relative to the densest part of the city.",
+    technical: "Uses 2021 Census data at the Dissemination Area level. Each hex is scored via point-in-polygon assignment to its containing DA, then sigmoid-normalized against the 75th percentile density. Hexes in rivers, rail yards, or off the road network correctly score zero.",
   },
   lrt: {
     title: "LRT Proximity",
     intuitive: "Favours locations near Light Rail Transit stations, encouraging multi-modal trips where riders bike to/from the train.",
-    technical: "Each area is scored based on how close it is to the nearest LRT station. Score is 100% right at a station and drops linearly to 0% at the Reach distance.",
+    technical: "Distance measured along the road and path network (not straight-line). Score uses negative-exponential decay: strong near the station, tapering to ~1% at the Reach distance. This means being across the river from an LRT station is penalised correctly.",
   },
   bike_infra: {
     title: "Bike Infrastructure",
     intuitive: "Steers stations toward areas with existing bike lanes, paths, and cycle tracks \u2014 places where cycling is already safe and convenient.",
-    technical: "Each area is scored by distance to the nearest bike lane, cycle track, or shared-use path. Score is 100% right on a route and drops to 0% at the Reach distance.",
+    technical: "Distance to the nearest bike lane, cycle track, or shared-use path is measured along the road network. Score uses negative-exponential decay from 100% at the path to ~1% at the Reach distance.",
   },
   transit: {
     title: "Transit Access",
     intuitive: "Values proximity to bus stops and other transit infrastructure, making bike-share a natural first/last-mile connector to the broader transit network.",
-    technical: "Each area is scored by distance to the nearest bus stop or transit platform. Score is 100% at a stop and drops to 0% at the Reach distance.",
+    technical: "Distance to the nearest bus stop or transit platform measured along the road network. Score uses negative-exponential decay. The Reach slider controls how far the influence extends.",
   },
   commercial: {
     title: "Commercial & Retail",
     intuitive: "Favours locations surrounded by shops, restaurants, cafes, and services \u2014 areas with many nearby destinations score highest.",
-    technical: "Counts OpenStreetMap POIs (shops, restaurants, cafes, banks, pharmacies, clinics) within 800m. Score uses log normalization: score = log(1+count) / log(1+scale). The Density Scale slider sets how many POIs = 100%. Data is fetched from Overpass and permanently cached.",
+    technical: "Counts POIs (shops, restaurants, cafes, banks, pharmacies, clinics) reachable within 800m along the road network. Score uses log normalization: score = log(1+count) / log(1+scale). The Density Scale slider sets how many POIs = 100%.",
   },
   education: {
     title: "Education & Institutional",
     intuitive: "Steers stations toward areas with schools, universities, colleges, and libraries nearby \u2014 more institutions in range means a higher score.",
-    technical: "Counts OpenStreetMap education/library POIs within 1,500m. Score uses log normalization. The Density Scale slider controls how many institutions = 100%.",
+    technical: "Counts education/library POIs reachable within 1,500m along the road network. Score uses log normalization. The Density Scale slider controls how many institutions = 100%.",
   },
   recreation: {
     title: "Parks & Recreation",
     intuitive: "Values areas surrounded by parks, recreation centres, sports facilities, and playgrounds \u2014 more facilities nearby means a higher score.",
-    technical: "Counts OpenStreetMap parks, rec centres, sports facilities, pools, playgrounds, and community centres within 1,000m. Score uses log normalization.",
+    technical: "Counts parks, rec centres, sports facilities, pools, playgrounds, and community centres reachable within 1,000m along the road network. Score uses log normalization.",
   },
   proximityRadius: {
     title: "Proximity Discount \u2014 Radius",
@@ -117,9 +122,10 @@ const HELP: Record<string, HelpEntry> = {
   maxDocks: { title: "Maximum Docks per Station", intuitive: "The largest station the algorithm will create.", technical: "No station will exceed this many docks." },
   spacing: { title: "Minimum Spacing", intuitive: "The closest two stations can be to each other.", technical: "Enforced as a hard rule: no two stations can be closer than this distance." },
   coverageRadius: { title: "Coverage Radius", intuitive: "How far a station\u2019s benefit extends. An area is \u201Ccovered\u201D if within this distance.", technical: "The algorithm maximises population and demand within this radius of placed stations." },
-  suitability: { title: "Suitability Overlay", intuitive: "Paints the map with a blue heat-map showing how suitable each location is.", technical: "The city is divided into ~5,000 hexagonal cells (~175m across). Colour reflects weighted average of scores." },
+  suitability: { title: "Suitability Overlay", intuitive: "Paints the map with a heat-map showing how suitable each location is. Areas in the river, on rail lines, or without road access are excluded (shown as transparent).", technical: "The city is divided into ~5,000 hexagonal cells (~175m across). A road-network feasibility mask excludes hexes with no road, path, or sidewalk within 75m. Distances are measured along the road network, not straight-line. Colour reflects the weighted average of all factor scores." },
   seedLRT: { title: "Seed LRT Stations", intuitive: "Instantly places a large 30-dock station at every LRT stop.", technical: "Creates a 30-dock, 15-bike station at each LRT stop. Skips any with a dock within 200m." },
-  generate: { title: "Generate Bike Share Network", intuitive: "Runs the optimisation algorithm to place new stations.", technical: "Uses MCLP that picks station locations covering the most demand while respecting constraints. Typical solve time is 2\u201310 seconds." },
+  generate: { title: "Generate Bike Share Network", intuitive: "Runs the optimisation algorithm to place new stations. Only road-accessible locations are considered.", technical: "Uses MCLP that picks station locations covering the most demand while respecting spacing, connectivity, and road-access constraints. All distances use the road network. Typical solve time is 2\u201310 seconds." },
+  constraints: { title: "Constraints", intuitive: "Set minimum requirements that every station location must meet. If a location fails any active constraint, it is excluded \u2014 no matter how well it scores on other factors.", technical: "Non-compensatory thresholds applied before the optimisation pass. Each active factor requires a minimum score (0\u2013100%) computed identically to the main scoring. A hex failing any threshold gets suitability = 0 and is ineligible for station placement." },
 };
 
 // ---------------------------------------------------------------------------
@@ -225,12 +231,9 @@ export default function PlannerControls({
           <div className="flex justify-end">
             <button
               onClick={() => {
-                onUpdateWeights({
-                  population: 0, lrt: 0, bike_infra: 0, transit: 0,
-                  commercial: 0, education: 0, recreation: 0,
-                });
-                onUpdateDecayRadii({ lrt: 2000, bike_infra: 200, transit: 800 });
-                onUpdateDensityScales({ commercial: 30, education: 5, recreation: 8 });
+                onUpdateWeights({ ...ZERO_WEIGHTS });
+                onUpdateDecayRadii({ ...DEFAULT_DECAY_RADII });
+                onUpdateDensityScales({ ...DEFAULT_DENSITY_SCALES });
               }}
               className="text-[10px] font-medium text-[var(--color-secondary)] hover:text-[var(--color-fg)] transition-colors flex items-center gap-1"
             >
@@ -413,6 +416,64 @@ export default function PlannerControls({
         </div>
       </Accordion>
 
+      {/* ── Constraints (default closed) ── */}
+      <Accordion title="Constraints">
+        <div className="px-5 py-3 space-y-2.5">
+          <p className="text-[10px] text-[var(--color-secondary)] leading-relaxed mb-2">
+            Minimum factor scores a hex must meet to be considered as a station location.
+            Active constraints are <strong>non-compensatory</strong> — a hex cannot compensate
+            for failing one threshold by excelling in another.
+          </p>
+          {(["population", "lrt", "bike_infra", "transit", "commercial", "education", "recreation"] as const).map((key) => {
+            const isActive = key in (config.minThresholds ?? {});
+            const value = (config.minThresholds ?? {})[key] ?? 0.1;
+            return (
+              <div key={key} className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 min-w-[120px]">
+                  <input
+                    type="checkbox"
+                    checked={isActive}
+                    onChange={(e) => {
+                      const next = { ...(config.minThresholds ?? {}) };
+                      if (e.target.checked) {
+                        next[key] = 0.1;
+                      } else {
+                        delete next[key];
+                      }
+                      cfg("minThresholds", next);
+                    }}
+                    className="accent-[var(--color-blue)]"
+                  />
+                  <span className="text-[11px] text-[var(--color-fg)]">
+                    {key === "bike_infra" ? "Bike Infra" : key.charAt(0).toUpperCase() + key.slice(1)}
+                  </span>
+                </label>
+                {isActive && (
+                  <>
+                    <input
+                      type="range" min={0.01} max={0.5} step={0.01}
+                      value={value}
+                      onChange={(e) => {
+                        const next = { ...(config.minThresholds ?? {}) };
+                        next[key] = Number(e.target.value);
+                        cfg("minThresholds", next);
+                      }}
+                      className="flex-1 h-1 appearance-none rounded-full cursor-pointer"
+                      style={{
+                        background: `linear-gradient(to right, #ef5350 ${((value - 0.01) / 0.49) * 100}%, #e0e0e0 ${((value - 0.01) / 0.49) * 100}%)`,
+                      }}
+                    />
+                    <span className="text-[11px] font-medium text-[var(--color-fg)] tabular-nums w-8 text-right">
+                      {Math.round(value * 100)}%
+                    </span>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Accordion>
+
       {/* ── Algorithm & Fleet (default closed) ── */}
       <Accordion title="Algorithm & Fleet">
         <div className="px-5 py-3 space-y-2.5">
@@ -562,6 +623,58 @@ export default function PlannerControls({
           )}
         </div>
       )}
+
+      {/* ── How It Works (methodology) ── */}
+      <Accordion title="How It Works">
+        <div className="px-5 py-3 space-y-3 text-[11px] text-[var(--color-secondary)] leading-relaxed">
+          <div>
+            <p className="font-semibold text-[var(--color-fg)] mb-1">Spatial Analysis</p>
+            <p>
+              Edmonton is divided into ~12,000 hexagonal cells (H3 resolution 9, ~175m across).
+              A <strong>road-network feasibility mask</strong> excludes cells that are in rivers,
+              rail yards, or more than 75m from any road, path, or sidewalk. Only the ~8,000
+              routable cells are considered for station placement.
+            </p>
+          </div>
+          <div>
+            <p className="font-semibold text-[var(--color-fg)] mb-1">Distance Measurement</p>
+            <p>
+              All distances are measured <strong>along the road and path network</strong> using
+              shortest-path (Dijkstra) algorithms on an OpenStreetMap graph with ~165,000 nodes.
+              This means the North Saskatchewan River, rail corridors, and freeways act as real
+              barriers, unlike straight-line distance.
+            </p>
+          </div>
+          <div>
+            <p className="font-semibold text-[var(--color-fg)] mb-1">Scoring</p>
+            <p>
+              <strong>Proximity factors</strong> (LRT, bike infrastructure, transit) use
+              negative-exponential decay: score = e<sup>-4.6 d/R</sup>, where d is network
+              distance and R is the Reach slider value. <strong>Density factors</strong>
+              (commercial, education, recreation) count reachable POIs via the road network,
+              then log-normalize. <strong>Population</strong> is assigned by point-in-polygon
+              lookup into Census Dissemination Areas.
+            </p>
+          </div>
+          <div>
+            <p className="font-semibold text-[var(--color-fg)] mb-1">Optimisation</p>
+            <p>
+              The <strong>MCLP</strong> (Maximum Covering Location Problem) solver uses
+              Google OR-Tools CP-SAT to maximise demand coverage under spacing and connectivity
+              constraints. The <strong>greedy</strong> algorithm places one station at a time at
+              the highest-scoring remaining location.
+            </p>
+          </div>
+          <div>
+            <p className="font-semibold text-[var(--color-fg)] mb-1">Data Sources</p>
+            <ul className="list-disc pl-4 space-y-0.5">
+              <li>OpenStreetMap via Overpass API (roads, transit stops, POIs, bike lanes)</li>
+              <li>Statistics Canada 2021 Census (population by Dissemination Area)</li>
+              <li>Edmonton GTFS (transit network)</li>
+            </ul>
+          </div>
+        </div>
+      </Accordion>
     </div>
   );
 }

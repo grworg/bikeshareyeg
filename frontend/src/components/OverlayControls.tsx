@@ -106,6 +106,42 @@ const LAYERS: LayerInfo[] = [
       </svg>
     ),
   },
+  {
+    key: "motorway",
+    label: "Motorways",
+    color: "#c62828",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <path d="M4 12h16" />
+        <path d="M4 6h16" />
+        <path d="M4 18h16" />
+      </svg>
+    ),
+  },
+  {
+    key: "trunk",
+    label: "Trunk Roads",
+    color: "#e65100",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <path d="M4 12h16" />
+        <path d="M8 6l-4 6 4 6" />
+        <path d="M16 6l4 6-4 6" />
+      </svg>
+    ),
+  },
+  {
+    key: "accessibility",
+    label: "Accessible Areas",
+    color: "#546e7a",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7" />
+        <path d="M15 4l5.447 2.724A1 1 0 0121 7.618v10.764a1 1 0 01-1.447.894L15 17" />
+        <path d="M9 7v13M15 4v13" />
+      </svg>
+    ),
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -225,6 +261,9 @@ export const OVERLAY_COLORS: Record<OverlayKey, [number, number, number, number]
   recreation: [67, 160, 71, 200],
   population: [211, 47, 47, 160],
   docks: [26, 115, 232, 200],
+  accessibility: [84, 110, 122, 120],
+  motorway: [198, 40, 40, 220],
+  trunk: [230, 81, 0, 200],
 };
 
 export const OVERLAY_WIDTHS: Record<OverlayKey, number> = {
@@ -236,4 +275,7 @@ export const OVERLAY_WIDTHS: Record<OverlayKey, number> = {
   recreation: 1,
   population: 1,
   docks: 1,
+  accessibility: 1,
+  motorway: 3,
+  trunk: 2.5,
 };

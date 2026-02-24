@@ -29,6 +29,36 @@ from ortools.sat.python import cp_model
 from src.config import settings
 
 # ---------------------------------------------------------------------------
+# Shared default constants — kept in one place so API schemas and
+# OptimizeConfig can reference the same values.
+# ---------------------------------------------------------------------------
+
+#: Decay radii (metres) for proximity-scored suitability factors.
+DEFAULT_DECAY_RADII: dict[str, float] = {
+    "lrt": 2000.0,
+    "bike_infra": 1000.0,
+    "transit": 800.0,
+}
+
+#: Saturation scale for density-scored POI factors (count at score ≈ 1.0).
+DEFAULT_DENSITY_SCALES: dict[str, float] = {
+    "commercial": 30.0,
+    "education": 5.0,
+    "recreation": 8.0,
+}
+
+#: Default factor weights (0-1).
+DEFAULT_WEIGHTS: dict[str, float] = {
+    "population": 0.8,
+    "lrt": 0.5,
+    "bike_infra": 0.5,
+    "transit": 0.4,
+    "commercial": 0.6,
+    "education": 0.4,
+    "recreation": 0.3,
+}
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
@@ -495,13 +525,36 @@ def _flatten_coords(geom: dict) -> list[list[float]]:
 # ---------------------------------------------------------------------------
 
 class SuitabilityEngine:
-    """Generates H3 hex grid and computes all factor scores.
+    """Loads and serves the precomputed H3 hex grid with factor scores.
 
-    The hex grid + factor scores are computed once, then cached.
-    The frontend combines factor scores with user-chosen weights in real time.
+    The hex grid is built offline by ``scripts/precompute-hexgrid.py`` and
+    deployed as ``data/hexgrid.geojson``.  This class loads that file on
+    first request and caches it in memory.
+
+    If the precomputed file is missing, falls back to legacy on-the-fly
+    computation with a deprecation warning.
     """
 
-    # Register all known factors here — easy to extend
+    # Factor metadata — used by the /planner/factors endpoint.
+    # Matches the keys written by the precompute script.
+    FACTOR_META: list[dict[str, str]] = [
+        {"key": "population", "name": "Population Density",
+         "description": "2021 Census population density by Dissemination Area (point-in-polygon)"},
+        {"key": "lrt", "name": "LRT Station Proximity",
+         "description": "Distance to nearest LRT station"},
+        {"key": "bike_infra", "name": "Bike Infrastructure",
+         "description": "Distance to nearest protected bike path"},
+        {"key": "transit", "name": "Transit Access",
+         "description": "Distance to nearest transit stop (bus + LRT)"},
+        {"key": "commercial", "name": "Commercial & Retail",
+         "description": "Density of shops, restaurants, and services within range"},
+        {"key": "education", "name": "Education & Institutional",
+         "description": "Density of schools, universities, colleges, and libraries within range"},
+        {"key": "recreation", "name": "Parks & Recreation",
+         "description": "Density of parks, rec centres, and sports facilities within range"},
+    ]
+
+    # Keep the old factor classes for legacy fallback computation
     FACTOR_CLASSES: list[type[SuitabilityFactor]] = [
         PopulationFactor,
         LRTProximityFactor,
@@ -512,79 +565,105 @@ class SuitabilityEngine:
         RecreationFactor,
     ]
 
+    _HEXGRID_PATH = _PROJECT_ROOT / "data" / "hexgrid.geojson"
+
     def __init__(self, resolution: int | None = None):
         self.resolution = resolution or settings.h3_resolution
-        self.factors: list[SuitabilityFactor] = [cls() for cls in self.FACTOR_CLASSES]
         self._hex_data: dict | None = None
+
+    @property
+    def factors(self) -> list[dict[str, str]]:
+        """Factor metadata for the /planner/factors endpoint."""
+        return self.FACTOR_META
 
     def compute_hex_grid(self) -> dict:
         """Return GeoJSON FeatureCollection with per-hex factor scores.
 
-        Cached after first call.
+        Loads from ``data/hexgrid.geojson`` (precomputed offline).
+        Falls back to legacy on-the-fly computation if the file is missing.
         """
         if self._hex_data is not None:
             return self._hex_data
 
-        t0 = time.time()
+        if self._HEXGRID_PATH.exists():
+            t0 = time.time()
+            print(f"[Planner] Loading precomputed hex grid from {self._HEXGRID_PATH.name} ...")
+            with open(self._HEXGRID_PATH) as f:
+                data = json.load(f)
+            n = len(data.get("features", []))
+            meta = data.get("metadata", {})
+            routable = sum(
+                1 for feat in data["features"]
+                if feat["properties"].get("routable", True)
+            )
+            print(f"[Planner] Loaded {n:,} hexes ({routable:,} routable) in "
+                  f"{time.time() - t0:.1f}s")
+            if meta:
+                print(f"[Planner] Generated: {meta.get('generated_at', '?')}, "
+                      f"scoring: {meta.get('scoring_method', '?')}, "
+                      f"decay: {meta.get('decay_function', '?')}")
+            self._hex_data = data
+            return data
 
-        # 1. Generate hex IDs covering Edmonton
+        # Legacy fallback — compute on the fly (deprecated)
+        print("[Planner] WARNING: data/hexgrid.geojson not found!")
+        print("[Planner]   Run: python scripts/precompute-hexgrid.py")
+        print("[Planner]   Falling back to legacy on-the-fly computation ...")
+        return self._legacy_compute()
+
+    def _legacy_compute(self) -> dict:
+        """Legacy on-the-fly hex grid computation (deprecated fallback)."""
+        t0 = time.time()
+        factors = [cls() for cls in self.FACTOR_CLASSES]
+
         outer = [
-            (_BBOX[0], _BBOX[1]),  # SW
-            (_BBOX[0], _BBOX[3]),  # SE
-            (_BBOX[2], _BBOX[3]),  # NE
-            (_BBOX[2], _BBOX[1]),  # NW
+            (_BBOX[0], _BBOX[1]),
+            (_BBOX[0], _BBOX[3]),
+            (_BBOX[2], _BBOX[3]),
+            (_BBOX[2], _BBOX[1]),
         ]
         poly = h3.LatLngPoly(outer)
         hex_ids = sorted(h3.polygon_to_cells(poly, self.resolution))
         n = len(hex_ids)
-        print(f"[Planner] Generated {n:,} H3 hexes at resolution {self.resolution}")
+        print(f"[Planner/Legacy] Generated {n:,} H3 hexes at resolution {self.resolution}")
 
-        # 2. Get centroids
         centroids = [h3.cell_to_latlng(h) for h in hex_ids]
         lats = np.array([c[0] for c in centroids])
         lngs = np.array([c[1] for c in centroids])
 
-        # 3. Compute each factor's scores (+ raw distances/counts for frontend)
         factor_scores: dict[str, np.ndarray] = {}
-        factor_distances: dict[str, np.ndarray] = {}  # raw metres for proximity factors
-        factor_counts: dict[str, np.ndarray] = {}     # raw POI counts for density factors
+        factor_distances: dict[str, np.ndarray] = {}
+        factor_counts: dict[str, np.ndarray] = {}
         any_failed = False
-        for factor in self.factors:
+        for factor in factors:
             ft = time.time()
             try:
                 factor._ensure_ready()
                 scores = factor.score_batch(lats, lngs)
                 factor_scores[factor.key] = scores
-                # Cache raw distances / counts for hex grid export
                 if isinstance(factor, _OverpassProximityFactor):
                     if factor._last_distances is not None:
                         factor_distances[factor.key] = factor._last_distances
                     if factor._last_counts is not None:
                         factor_counts[factor.key] = factor._last_counts
-                print(f"[Planner]   {factor.name}: {time.time()-ft:.1f}s "
+                print(f"[Planner/Legacy]   {factor.name}: {time.time()-ft:.1f}s "
                       f"(mean={scores.mean():.3f}, max={scores.max():.3f})")
             except Exception as exc:
-                print(f"[Planner]   {factor.name}: FAILED ({exc})")
+                print(f"[Planner/Legacy]   {factor.name}: FAILED ({exc})")
                 factor_scores[factor.key] = np.zeros(n)
                 any_failed = True
 
-        # 4. Build hex boundary polygons for GeoJSON
         features: list[dict[str, Any]] = []
         for i, hid in enumerate(hex_ids):
             boundary = h3.cell_to_boundary(hid)
-            # h3 returns (lat, lng); GeoJSON needs [lng, lat]
             ring = [[round(lng, 5), round(lat, 5)] for lat, lng in boundary]
-            ring.append(ring[0])  # close the ring
+            ring.append(ring[0])
 
-            props: dict[str, Any] = {"h3": hid}
+            props: dict[str, Any] = {"h3": hid, "routable": True}
             for key, scores in factor_scores.items():
                 props[key] = round(float(scores[i]), 4)
-            # Also store raw distances (metres) for proximity-based factors
-            # so the frontend can recompute scores with custom decay radii
             for key, dists in factor_distances.items():
                 props[f"{key}_dist"] = round(float(dists[i]), 1)
-            # Store raw POI counts for density-based factors so the
-            # frontend can recompute with custom density scales
             for key, counts in factor_counts.items():
                 props[f"{key}_count"] = int(counts[i])
 
@@ -595,12 +674,9 @@ class SuitabilityEngine:
             })
 
         result = {"type": "FeatureCollection", "features": features}
-        print(f"[Planner] Hex grid computed in {time.time()-t0:.1f}s")
+        print(f"[Planner/Legacy] Hex grid computed in {time.time()-t0:.1f}s")
         if not any_failed:
-            self._hex_data = result  # only cache if all factors succeeded
-            print("[Planner] All factors OK — caching hex grid")
-        else:
-            print("[Planner] WARNING: some factors failed — NOT caching (will retry next request)")
+            self._hex_data = result
         return result
 
 
@@ -632,28 +708,17 @@ class OptimizeConfig:
     connectivity_strength: float = 0.6   # 0-1 (0 = no penalty, 1 = full)
     # Per-factor decay radii (metres) — controls how far each proximity factor's
     # influence extends.  Not used for density-scored factors (commercial, etc.).
-    decay_radii: dict[str, float] = field(default_factory=lambda: {
-        "lrt": 2000.0,
-        "bike_infra": 1000.0,
-        "transit": 800.0,
-    })
+    decay_radii: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_DECAY_RADII))
     # Density scales — for density-scored POI factors, the POI count at which
     # the score reaches 1.0 (log normalization).
-    density_scales: dict[str, float] = field(default_factory=lambda: {
-        "commercial": 30.0,
-        "education": 5.0,
-        "recreation": 8.0,
-    })
+    density_scales: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_DENSITY_SCALES))
     # Factor weights (0-1)
-    weights: dict[str, float] = field(default_factory=lambda: {
-        "population": 0.8,
-        "lrt": 0.5,
-        "bike_infra": 0.5,
-        "transit": 0.4,
-        "commercial": 0.6,
-        "education": 0.4,
-        "recreation": 0.3,
-    })
+    weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
+    # Minimum factor thresholds (non-compensatory constraints).
+    # A hex must meet ALL active thresholds to be considered as a candidate.
+    # Keys match factor keys; values are minimum score (0-1).
+    # Empty dict = no thresholds (fully compensatory, the default).
+    min_thresholds: dict[str, float] = field(default_factory=dict)
     # Existing stations (optimizer places new stations around these)
     existing_stations: list[dict] = field(default_factory=list)  # [{lat, lng, capacity}]
 
@@ -684,34 +749,69 @@ def _compute_base_suitability(
     """Compute per-hex suitability from weights + decay/density config, plus centroids.
 
     Returns (suitability, centroids_lat, centroids_lng) — all length-n arrays.
+
+    Scoring modes:
+      - Density factors (commercial, education, recreation): log normalization
+        of POI count within radius.
+      - Proximity factors (lrt, bike_infra, transit): negative-exponential decay
+        from nearest feature (score = exp(-4.6 * d / radius)).
+      - Direct factors (population): pre-computed score used directly.
+
+    Non-routable hexes (river, rail, highway) are forced to suitability = 0.
     """
     n = len(features)
     weights = config.weights
     total_weight = sum(weights.values()) or 1.0
     decay_radii = config.decay_radii
     density_scales = config.density_scales
+    min_thresholds = config.min_thresholds
 
     suitability = np.zeros(n)
     for i, feat in enumerate(features):
         props = feat["properties"]
-        score = 0.0
+
+        # Hard constraint: non-routable hexes get zero suitability
+        if not props.get("routable", True):
+            continue
+
+        factor_scores: dict[str, float] = {}
         for key, w in weights.items():
+            net_count_key = f"{key}_network_count"
             count_key = f"{key}_count"
+            net_dist_key = f"{key}_network_dist"
             dist_key = f"{key}_dist"
-            if key in density_scales and count_key in props:
-                # Density-scored factor (POIs): log normalization of count
-                count = props[count_key]
+
+            if key in density_scales and (net_count_key in props or count_key in props):
+                count = props.get(net_count_key, props.get(count_key, 0))
                 scale = density_scales[key]
-                factor_score = min(1.0, math.log1p(count) / math.log1p(scale)) if scale > 0 else 0.0
-            elif key in decay_radii and dist_key in props:
-                # Proximity-scored factor: linear decay from nearest
-                dist = props[dist_key]
+                factor_scores[key] = (
+                    min(1.0, math.log1p(count) / math.log1p(scale))
+                    if scale > 0 else 0.0
+                )
+            elif key in decay_radii and (net_dist_key in props or dist_key in props):
+                dist = props.get(net_dist_key)
+                if dist is None or dist is False:
+                    dist = props.get(dist_key, float("inf"))
                 radius = decay_radii[key]
-                factor_score = max(0.0, 1.0 - dist / radius) if radius > 0 else 0.0
+                if radius > 0 and dist != float("inf") and dist is not None:
+                    beta = 4.6 / radius
+                    factor_scores[key] = math.exp(-beta * dist)
+                else:
+                    factor_scores[key] = 0.0
             else:
-                # Direct score (e.g. population)
-                factor_score = props.get(key, 0.0)
-            score += w * factor_score
+                factor_scores[key] = props.get(key, 0.0)
+
+        # Non-compensatory threshold check: hex must meet ALL active thresholds
+        if min_thresholds:
+            failed = False
+            for tkey, tmin in min_thresholds.items():
+                if tkey in factor_scores and factor_scores[tkey] < tmin:
+                    failed = True
+                    break
+            if failed:
+                continue
+
+        score = sum(w * factor_scores.get(key, 0.0) for key, w in weights.items())
         suitability[i] = score / total_weight
 
     centroids_lat = np.zeros(n)

@@ -198,6 +198,7 @@ export async function runPlannerOptimize(params: {
   decay_radii: PlannerDecayRadii;
   density_scales: PlannerDensityScales;
   weights: PlannerWeights;
+  min_thresholds: { [key: string]: number };
   existing_stations: { lat: number; lng: number; capacity: number }[];
 }): Promise<OptimizeResponse> {
   // Normalize weights from 0-100 sliders to 0-1
@@ -231,6 +232,7 @@ export async function stepPlanner(params: {
   decay_radii: PlannerDecayRadii;
   density_scales: PlannerDensityScales;
   weights: PlannerWeights;
+  min_thresholds: { [key: string]: number };
   existing_stations: { lat: number; lng: number; capacity: number }[];
 }): Promise<StepResponse> {
   const normalizedWeights: { [key: string]: number } = {};
@@ -244,6 +246,19 @@ export async function stepPlanner(params: {
       weights: normalizedWeights,
     }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Hex path exploration (Dijkstra visualization)
+// ---------------------------------------------------------------------------
+
+export async function getHexPath(
+  h3Id: string,
+  factor: string,
+): Promise<GeoJSON.FeatureCollection> {
+  return fetchJSON<GeoJSON.FeatureCollection>(
+    `/planner/hex-path?h3=${encodeURIComponent(h3Id)}&factor=${encodeURIComponent(factor)}`,
+  );
 }
 
 // ---------------------------------------------------------------------------

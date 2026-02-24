@@ -84,7 +84,7 @@ export interface RouteOption {
 // Overlays
 // ---------------------------------------------------------------------------
 
-export type OverlayKey = "lrt" | "bike" | "bus" | "population" | "docks" | "commercial" | "education" | "recreation";
+export type OverlayKey = "lrt" | "bike" | "bus" | "population" | "docks" | "commercial" | "education" | "recreation" | "accessibility" | "motorway" | "trunk";
 
 // ---------------------------------------------------------------------------
 // Planner (auto-optimizer)
@@ -133,6 +133,9 @@ export interface PlannerConfig {
   // Network connectivity — penalises locations too far from any existing station
   connectivityRadius: number;   // metres — beyond this, isolation penalty kicks in
   connectivityStrength: number; // 0-100 (how much to penalise at very far distances)
+  // Minimum factor thresholds (non-compensatory constraints)
+  // Hex must meet ALL active thresholds. Keys = factor keys, values = min score 0-1.
+  minThresholds: Partial<PlannerWeights>;
 }
 
 export interface PlannerCoverage {

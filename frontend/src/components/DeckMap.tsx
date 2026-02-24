@@ -16,6 +16,15 @@ import {
   OVERLAY_COLORS,
   OVERLAY_WIDTHS,
 } from "@/components/OverlayControls";
+import {
+  scoreHex,
+  FACTOR_LABELS,
+  DEFAULT_DECAY_RADII,
+  DEFAULT_DENSITY_SCALES,
+  type ScorerParams,
+  type HexScore,
+} from "@/lib/suitability";
+import { getHexPath } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Exported types
@@ -65,7 +74,7 @@ interface DeckMapProps {
 // ---------------------------------------------------------------------------
 
 type PopupData =
-  | { kind: "hex"; x: number; y: number; html: string }
+  | { kind: "hex"; x: number; y: number; h3Id: string; score: HexScore; proxFactor: number }
   | { kind: "station"; x: number; y: number; station: BikeStation };
 
 // ---------------------------------------------------------------------------
@@ -379,6 +388,127 @@ function RichStationMarker({
 }
 
 // ---------------------------------------------------------------------------
+// Factor colors for path visualization
+// ---------------------------------------------------------------------------
+
+const FACTOR_COLORS: Record<string, string> = {
+  lrt: "#7b1fa2",
+  bike_infra: "#00838f",
+  transit: "#0277bd",
+  commercial: "#e65100",
+  education: "#283593",
+  recreation: "#2e7d32",
+  population: "#e53935",
+};
+
+// Non-population factors that have paths (all except population)
+const PATHABLE_FACTORS = new Set(["lrt", "bike_infra", "transit", "commercial", "education", "recreation"]);
+
+function _hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  return [
+    parseInt(h.substring(0, 2), 16),
+    parseInt(h.substring(2, 4), 16),
+    parseInt(h.substring(4, 6), 16),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Hex popup card (shown on click — interactive factor rows)
+// ---------------------------------------------------------------------------
+
+function HexPopupContent({
+  h3Id,
+  score,
+  proxFactor,
+  activePathFactor,
+  loadingFactor,
+  onFactorClick,
+}: {
+  h3Id: string;
+  score: HexScore;
+  proxFactor: number;
+  activePathFactor: string | null;
+  loadingFactor: string | null;
+  onFactorClick: (factorKey: string) => void;
+}) {
+  const pct = (n: number) => Math.round(n * 100);
+
+  return (
+    <div className="px-3.5 py-3">
+      <div className="text-[13px] font-semibold mb-1">
+        Suitability: {pct(score.overall)}%
+      </div>
+      <div className="text-[11px] text-[#5f6368] leading-relaxed space-y-0.5">
+        {Object.entries(FACTOR_LABELS).map(([key, label]) => {
+          const fr = score.factors[key];
+          if (!fr) return null;
+          const isPathable = PATHABLE_FACTORS.has(key);
+          const isActive = activePathFactor === key;
+          const isLoading = loadingFactor === key;
+          const color = FACTOR_COLORS[key] ?? "#5f6368";
+
+          return (
+            <div
+              key={key}
+              className={`flex items-center gap-1 rounded px-1 -mx-1 ${
+                isPathable
+                  ? "cursor-pointer hover:bg-[#f1f3f4] transition-colors"
+                  : ""
+              } ${isActive ? "bg-[#e8f0fe]" : ""}`}
+              onClick={isPathable ? () => onFactorClick(key) : undefined}
+              title={isPathable ? `Show route to nearest ${label.toLowerCase()}` : undefined}
+            >
+              {isPathable && (
+                <span className="flex-none w-3 text-center">
+                  {isLoading ? (
+                    <span className="inline-block w-2 h-2 border border-[#9aa0a6] border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 16 16"
+                      fill={isActive ? color : "#9aa0a6"}
+                      className="inline-block"
+                    >
+                      <path d="M8 0C5.2 0 3 2.2 3 5c0 3.5 5 9.5 5 9.5s5-6 5-9.5C13 2.2 10.8 0 8 0zm0 7c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z" />
+                    </svg>
+                  )}
+                </span>
+              )}
+              <span className={isActive ? "font-medium" : ""}>
+                {label}: {pct(fr.score)}%
+              </span>
+              {fr.extra && (
+                <span className="text-[#9e9e9e] ml-auto text-[10px]">
+                  {fr.extra}
+                </span>
+              )}
+            </div>
+          );
+        })}
+        {proxFactor < 0.99 && (
+          <div className="mt-1 pt-1 border-t border-[#e0e0e0]">
+            Station modifier:{" "}
+            <span
+              className="font-semibold"
+              style={{ color: proxFactor < 0.7 ? "#e53935" : "#fb8c00" }}
+            >
+              ×{proxFactor.toFixed(2)}
+            </span>
+          </div>
+        )}
+      </div>
+      {activePathFactor && (
+        <div className="mt-1.5 pt-1.5 border-t border-[#e0e0e0] text-[10px] text-[#9aa0a6]">
+          Click factor again to hide route
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Station popup card (shown on click)
 // ---------------------------------------------------------------------------
 
@@ -469,6 +599,10 @@ export default function DeckMap({
   const lastFlyTs = useRef<number>(0);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [popup, setPopup] = useState<PopupData | null>(null);
+
+  // Hex path exploration (Dijkstra visualization)
+  const [hexPathData, setHexPathData] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [hexPathLoading, setHexPathLoading] = useState<string | null>(null); // factor key being loaded
 
   const currentZoom = viewState.zoom ?? INITIAL_VIEW_STATE.zoom;
   const showRichMarkers = designerMode && currentZoom >= 15;
@@ -626,40 +760,12 @@ export default function DeckMap({
     // ── Suitability hex grid (planner) ──
     if (showSuitability && suitabilityData && suitabilityWeights) {
       const _sw = suitabilityWeights;
-      const _dr = suitabilityDecayRadii;
-      const _ds = suitabilityDensityScales;
-
-      // Proximity-scored factors (linear decay from nearest)
-      const PROXIMITY_KEYS = ["lrt", "bike_infra", "transit"] as const;
-      const DEFAULT_RADII: Record<string, number> = { lrt: 2000, bike_infra: 200, transit: 800 };
-
-      // Density-scored factors (POI count, log normalization)
-      const DENSITY_KEYS = ["commercial", "education", "recreation"] as const;
-      const DEFAULT_SCALES: Record<string, number> = { commercial: 30, education: 5, recreation: 8 };
-
-      // Normalised weights (0-1) for each factor
-      const wMap: Record<string, number> = {};
-      let wTotal = 0;
-      for (const key of Object.keys(_sw) as (keyof typeof _sw)[]) {
-        const w = _sw[key] / 100;
-        wMap[key] = w;
-        wTotal += w;
-      }
-      if (wTotal === 0) wTotal = 1;
-
-      // Resolved decay radii (proximity factors only)
-      const drMap: Record<string, number> = {};
-      for (const key of PROXIMITY_KEYS) {
-        drMap[key] = _dr?.[key as keyof typeof _dr] ?? DEFAULT_RADII[key] ?? 1000;
-      }
-
-      // Resolved density scales (POI factors)
-      const dsMap: Record<string, number> = {};
-      for (const key of DENSITY_KEYS) {
-        dsMap[key] = _ds?.[key as keyof typeof _ds] ?? DEFAULT_SCALES[key] ?? 10;
-      }
-
-      const _proxFactors = proximityFactors; // capture for closure
+      const scorerParams: ScorerParams = {
+        weights: { ..._sw },
+        decayRadii: { ...DEFAULT_DECAY_RADII, ...suitabilityDecayRadii },
+        densityScales: { ...DEFAULT_DENSITY_SCALES, ...suitabilityDensityScales },
+        proximityFactors: proximityFactors ?? null,
+      };
 
       result.push(
         new GeoJsonLayer({
@@ -673,47 +779,20 @@ export default function DeckMap({
           getLineWidth: 0.5,
           getFillColor: (f: any) => {
             const p = f.properties || {};
-            let score = 0;
-            for (const key of Object.keys(wMap)) {
-              const w = wMap[key];
-              if (w === 0) continue;
+            if (p.routable === false) return [0, 0, 0, 0];
 
-              let factorScore: number;
-              const countKey = `${key}_count`;
-              const distKey = `${key}_dist`;
+            const { overall: score } = scoreHex(p, scorerParams);
 
-              if (countKey in p && key in dsMap) {
-                // Density-scored factor: log normalization of POI count
-                const count: number = p[countKey];
-                const scale = dsMap[key];
-                factorScore = Math.min(1, Math.log1p(count) / Math.log1p(scale));
-              } else if (distKey in p && key in drMap) {
-                // Proximity-scored factor: linear decay from nearest
-                factorScore = Math.max(0, 1 - p[distKey] / drMap[key]);
-              } else {
-                // Direct score (e.g. population)
-                factorScore = p[key] ?? 0;
-              }
-              score += w * factorScore;
-            }
-            score /= wTotal;
-
-            // Apply proximity discount from nearby existing stations
-            if (_proxFactors && p.h3) {
-              score *= _proxFactors[p.h3] ?? 1.0;
-            }
-
-            // 0 → transparent, 1 → vivid blue
-            if (score < 0.05) return [0, 0, 0, 0]; // invisible
-            if (score < 0.15) return [227, 242, 253, 60];   // very light blue
-            if (score < 0.25) return [187, 222, 251, 90];   // light blue
-            if (score < 0.35) return [144, 202, 249, 110];  // sky
-            if (score < 0.45) return [100, 181, 246, 130];  // medium blue
-            if (score < 0.55) return [66, 165, 245, 145];   // blue
-            if (score < 0.65) return [30, 136, 229, 155];   // strong blue
-            if (score < 0.75) return [25, 118, 210, 165];   // dark blue
-            if (score < 0.85) return [21, 101, 192, 175];   // deeper blue
-            return [13, 71, 161, 185];                        // navy
+            if (score < 0.05) return [0, 0, 0, 0];
+            if (score < 0.15) return [227, 242, 253, 60];
+            if (score < 0.25) return [187, 222, 251, 90];
+            if (score < 0.35) return [144, 202, 249, 110];
+            if (score < 0.45) return [100, 181, 246, 130];
+            if (score < 0.55) return [66, 165, 245, 145];
+            if (score < 0.65) return [30, 136, 229, 155];
+            if (score < 0.75) return [25, 118, 210, 165];
+            if (score < 0.85) return [21, 101, 192, 175];
+            return [13, 71, 161, 185];
           },
           pickable: true,
           parameters: { depthWriteEnabled: false },
@@ -721,8 +800,7 @@ export default function DeckMap({
             getFillColor: [
               _sw.population, _sw.lrt, _sw.bike_infra, _sw.transit,
               _sw.commercial, _sw.education, _sw.recreation,
-              drMap.lrt, drMap.bike_infra, drMap.transit,
-              dsMap.commercial, dsMap.education, dsMap.recreation,
+              suitabilityDecayRadii, suitabilityDensityScales,
               proximityFactors,
             ],
           },
@@ -752,8 +830,35 @@ export default function DeckMap({
       }
     }
 
-    // ── Transit / cycling overlay line layers ──
-    const overlayOrder: OverlayKey[] = ["bus", "bike", "lrt"];
+    // ── Accessibility overlay (non-routable hexes from suitability data) ──
+    if (activeOverlays.has("accessibility") && suitabilityData) {
+      const nonRoutable = {
+        type: "FeatureCollection" as const,
+        features: suitabilityData.features.filter(
+          (f: any) => f.properties?.routable === false,
+        ),
+      };
+      if (nonRoutable.features.length > 0) {
+        result.push(
+          new GeoJsonLayer({
+            id: "overlay-accessibility",
+            data: nonRoutable as any,
+            stroked: true,
+            filled: true,
+            extruded: false,
+            lineWidthMinPixels: 0.3,
+            getLineColor: [120, 120, 120, 30] as [number, number, number, number],
+            getLineWidth: 0.3,
+            getFillColor: [178, 60, 60, 55] as [number, number, number, number],
+            pickable: false,
+            parameters: { depthWriteEnabled: false },
+          }),
+        );
+      }
+    }
+
+    // ── Transit / cycling / road overlay line layers ──
+    const overlayOrder: OverlayKey[] = ["motorway", "trunk", "bus", "bike", "lrt"];
     for (const key of overlayOrder) {
       if (activeOverlays.has(key) && overlayData[key]) {
         // For LRT, filter out Point features (rendered as HTML Markers below)
@@ -872,8 +977,63 @@ export default function DeckMap({
       }
     }
 
+    // ── Hex path visualization (Dijkstra route to nearest feature) ──
+    if (hexPathData && hexPathData.features) {
+      const pathFactor = (hexPathData as any)?.properties?.factor ?? "";
+      const pathColor = FACTOR_COLORS[pathFactor] ?? "#1a73e8";
+      const [r, g, b] = _hexToRgb(pathColor);
+
+      const routeFeatures = hexPathData.features.filter(
+        (f: any) => f.properties?.type === "route",
+      );
+      const pointFeatures = hexPathData.features.filter(
+        (f: any) => f.properties?.type === "destination" || f.properties?.type === "origin",
+      );
+
+      if (routeFeatures.length > 0) {
+        result.push(
+          new GeoJsonLayer({
+            id: "hex-path-route",
+            data: { type: "FeatureCollection", features: routeFeatures } as any,
+            stroked: true,
+            filled: false,
+            lineWidthMinPixels: 4,
+            getLineColor: [220, 40, 40, 230] as [number, number, number, number],
+            getLineWidth: 4,
+            getDashArray: [8, 4],
+            dashJustified: true,
+            pickable: false,
+          }),
+        );
+      }
+      if (pointFeatures.length > 0) {
+        result.push(
+          new ScatterplotLayer({
+            id: "hex-path-points",
+            data: pointFeatures.map((f: any) => ({
+              position: f.geometry.coordinates,
+              type: f.properties?.type,
+              distance: f.properties?.distance_m,
+            })),
+            getPosition: (d: any) => d.position,
+            getRadius: (d: any) => (d.type === "destination" ? 60 : 40),
+            getFillColor: (d: any) =>
+              d.type === "destination"
+                ? [220, 40, 40, 220] as [number, number, number, number]
+                : [66, 133, 244, 160] as [number, number, number, number],
+            radiusMinPixels: 8,
+            radiusMaxPixels: 16,
+            pickable: false,
+            stroked: true,
+            getLineColor: [255, 255, 255, 220] as [number, number, number, number],
+            lineWidthMinPixels: 2,
+          }),
+        );
+      }
+    }
+
     return result;
-  }, [stations, selectedRoute, designerMode, selectedStationId, overlayData, activeOverlays, showSuitability, suitabilityData, suitabilityWeights, suitabilityDecayRadii, suitabilityDensityScales, proximityFactors]);
+  }, [stations, selectedRoute, designerMode, selectedStationId, overlayData, activeOverlays, showSuitability, suitabilityData, suitabilityWeights, suitabilityDecayRadii, suitabilityDensityScales, proximityFactors, hexPathData]);
 
   // ---- Hover tooltip (overlays only — hex & station popups are click-based) ----
   const getTooltip = useCallback(
@@ -969,76 +1129,30 @@ export default function DeckMap({
     [],
   );
 
-  // ---- Build hex popup HTML (used by click handler) ----
-  const buildHexPopupHtml = useCallback(
-    (properties: any): string => {
-      const p = properties;
-      const _sw = suitabilityWeights;
-      const _dr = suitabilityDecayRadii;
-      const _ds = suitabilityDensityScales;
-      const DEFAULT_RADII: Record<string, number> = { lrt: 2000, bike_infra: 200, transit: 800 };
-      const DEFAULT_SCALES: Record<string, number> = { commercial: 30, education: 5, recreation: 8 };
-      const FACTOR_LABELS: Record<string, string> = {
-        population: "Population",
-        commercial: "Commercial",
-        education: "Education",
-        recreation: "Recreation",
-        lrt: "LRT",
-        bike_infra: "Bike infra",
-        transit: "Transit",
-      };
-
-      // Compute per-factor scores and weighted total
-      let wTotal = 0;
-      let rawScore = 0;
-      const factorScores: Record<string, number> = {};
-      const factorExtras: Record<string, string> = {};
-
-      for (const key of Object.keys(FACTOR_LABELS)) {
-        const w = (_sw?.[key as keyof typeof _sw] ?? 0) / 100;
-        wTotal += w;
-        const countKey = `${key}_count`;
-        const distKey = `${key}_dist`;
-        let fs: number;
-
-        if (countKey in p && key in DEFAULT_SCALES) {
-          // Density-scored factor
-          const count: number = p[countKey];
-          const scale = _ds?.[key as keyof typeof _ds] ?? DEFAULT_SCALES[key];
-          fs = Math.min(1, Math.log1p(count) / Math.log1p(scale));
-          factorExtras[key] = `${count} nearby`;
-        } else if (distKey in p && key in DEFAULT_RADII) {
-          // Proximity-scored factor
-          const dr = _dr?.[key as keyof typeof _dr] ?? DEFAULT_RADII[key];
-          fs = dr ? Math.max(0, 1 - p[distKey] / dr) : 0;
-          factorExtras[key] = `${Math.round(p[distKey])}m`;
-        } else {
-          fs = p[key] ?? 0;
+  // ---- Hex path fetch handler ----
+  const handleFetchHexPath = useCallback(
+    async (h3Id: string, factorKey: string) => {
+      // Toggle off if same factor is already active
+      if (hexPathData && hexPathLoading === null) {
+        const activeFactor = (hexPathData as any)?.properties?.factor;
+        const activeH3 = (hexPathData as any)?.properties?.h3;
+        if (activeFactor === factorKey && activeH3 === h3Id) {
+          setHexPathData(null);
+          return;
         }
-        factorScores[key] = fs;
-        rawScore += w * fs;
       }
-      if (wTotal === 0) wTotal = 1;
-      rawScore /= wTotal;
-
-      const proxFactor = proximityFactors?.[p.h3] ?? 1.0;
-      const adjustedScore = rawScore * proxFactor;
-      const pct = (n: number) => Math.round(n * 100);
-      const proxLine = proxFactor < 0.99
-        ? `<br/>Station modifier: <b style="color:${proxFactor < 0.7 ? '#e53935' : '#fb8c00'}">×${proxFactor.toFixed(2)}</b>`
-        : "";
-      const lines = Object.entries(FACTOR_LABELS)
-        .map(([key, label]) => {
-          const extra = factorExtras[key] ? ` <span style="color:#9e9e9e">(${factorExtras[key]})</span>` : "";
-          return `${label}: ${pct(factorScores[key])}%${extra}`;
-        })
-        .join("<br/>");
-      return `<div style="font-size:13px;font-weight:600;margin-bottom:4px">Suitability: ${pct(adjustedScore)}%</div>
-              <div style="font-size:11px;color:#5f6368;line-height:1.6">
-                ${lines}${proxLine}
-              </div>`;
+      setHexPathLoading(factorKey);
+      try {
+        const data = await getHexPath(h3Id, factorKey);
+        setHexPathData(data);
+      } catch (err) {
+        console.error("Failed to fetch hex path:", err);
+        setHexPathData(null);
+      } finally {
+        setHexPathLoading(null);
+      }
     },
-    [suitabilityWeights, suitabilityDecayRadii, suitabilityDensityScales, proximityFactors],
+    [hexPathData, hexPathLoading],
   );
 
   // ---- Click handler (left-button only) ----
@@ -1056,12 +1170,17 @@ export default function DeckMap({
         info.layer?.id === "suitability-hexgrid" &&
         info.object.properties
       ) {
-        setPopup({
-          kind: "hex",
-          x: sx,
-          y: sy,
-          html: buildHexPopupHtml(info.object.properties),
+        const p = info.object.properties;
+        const result = scoreHex(p, {
+          weights: { ...(suitabilityWeights ?? {}) },
+          decayRadii: { ...DEFAULT_DECAY_RADII, ...suitabilityDecayRadii },
+          densityScales: { ...DEFAULT_DENSITY_SCALES, ...suitabilityDensityScales },
+          proximityFactors: proximityFactors ?? null,
         });
+        const pf = proximityFactors?.[p.h3] ?? 1.0;
+        setPopup({ kind: "hex", x: sx, y: sy, h3Id: p.h3, score: result, proxFactor: pf });
+        setHexPathData(null);
+        setHexPathLoading(null);
         return;
       }
 
@@ -1081,11 +1200,13 @@ export default function DeckMap({
 
       // Click on empty space → close popup + fire map click
       setPopup(null);
+      setHexPathData(null);
+      setHexPathLoading(null);
       if (!info.object && info.coordinate && onMapClick) {
         onMapClick({ lng: info.coordinate[0], lat: info.coordinate[1] });
       }
     },
-    [onMapClick, onStationClick, designerMode, buildHexPopupHtml],
+    [onMapClick, onStationClick, designerMode, suitabilityWeights, suitabilityDecayRadii, suitabilityDensityScales, proximityFactors],
   );
 
   return (
@@ -1098,7 +1219,10 @@ export default function DeckMap({
         viewState={viewState}
         onViewStateChange={({ viewState: vs }: any) => {
           setViewState(vs);
-          if (popup) setPopup(null);
+          if (popup) {
+            setPopup(null);
+            // Don't clear hexPathData here — let users pan to see the full path
+          }
         }}
         controller={true}
         layers={layers}
@@ -1209,7 +1333,7 @@ export default function DeckMap({
           >
             {/* Close button */}
             <button
-              onClick={() => setPopup(null)}
+              onClick={() => { setPopup(null); setHexPathData(null); setHexPathLoading(null); }}
               className="absolute top-1.5 right-1.5 w-5 h-5 flex items-center justify-center rounded-full text-[#9aa0a6] hover:bg-[#f1f3f4] hover:text-[#5f6368] transition-colors"
             >
               <svg width="10" height="10" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -1219,7 +1343,14 @@ export default function DeckMap({
             </button>
 
             {popup.kind === "hex" ? (
-              <div className="px-3.5 py-3" dangerouslySetInnerHTML={{ __html: popup.html }} />
+              <HexPopupContent
+                h3Id={popup.h3Id}
+                score={popup.score}
+                proxFactor={popup.proxFactor}
+                activePathFactor={(hexPathData as any)?.properties?.factor ?? null}
+                loadingFactor={hexPathLoading}
+                onFactorClick={(factorKey) => handleFetchHexPath(popup.h3Id, factorKey)}
+              />
             ) : (
               <StationPopupContent
                 station={popup.station}

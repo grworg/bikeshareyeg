@@ -26,7 +26,7 @@
 .PHONY: dev dev-otp install lint format \
         deploy deploy-quick deploy-data \
         up down logs \
-        overlays otp-graph help
+        overlays hexgrid otp-graph help
 
 # ── Development ──────────────────────────────────────────────
 
@@ -75,6 +75,9 @@ logs:  ## Follow container logs
 
 overlays:  ## Generate population density overlay from census data
 	cd backend && .venv/bin/python ../scripts/process-census-data.py
+
+hexgrid:  ## Precompute suitability hex grid (run before deploy)
+	cd backend && .venv/bin/python ../scripts/precompute-hexgrid.py
 
 otp-graph:  ## Build OTP routing graph (downloads OSM + GTFS data)
 	@bash scripts/setup-otp.sh
