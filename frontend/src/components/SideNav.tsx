@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { AppMode } from "@/lib/types";
+import { useNetwork } from "@/lib/NetworkContext";
 
 // ---------------------------------------------------------------------------
 // Nav items configuration — single source of truth for both desktop + mobile
@@ -65,7 +67,27 @@ const DOCS_ITEM: NavDef = {
 };
 
 // ---------------------------------------------------------------------------
-// Bike logo SVG — shared between desktop and mobile
+// Helpers
+// ---------------------------------------------------------------------------
+
+function hrefForMode(mode: AppMode, activeNetworkId: string | null): string {
+  switch (mode) {
+    case "routing": return "/routing";
+    case "designer": return activeNetworkId ? `/designer/${activeNetworkId}` : "/designer";
+    case "saved": return "/saved";
+    case "docs": return "/docs";
+  }
+}
+
+function modeFromPathname(pathname: string): AppMode {
+  if (pathname.startsWith("/designer")) return "designer";
+  if (pathname.startsWith("/saved")) return "saved";
+  if (pathname.startsWith("/docs")) return "docs";
+  return "routing";
+}
+
+// ---------------------------------------------------------------------------
+// Bike logo SVG
 // ---------------------------------------------------------------------------
 
 function BikeLogo({ size = 20 }: { size?: number }) {
@@ -83,12 +105,11 @@ function BikeLogo({ size = 20 }: { size?: number }) {
 // Desktop SideNav — 48px rail that expands to 200px on hover
 // ---------------------------------------------------------------------------
 
-interface SideNavProps {
-  mode: AppMode;
-  onChangeMode: (mode: AppMode) => void;
-}
+export default function SideNav() {
+  const pathname = usePathname();
+  const currentMode = modeFromPathname(pathname);
+  const { activeNetworkId } = useNetwork();
 
-export default function SideNav({ mode, onChangeMode }: SideNavProps) {
   return (
     <nav className="group/nav w-12 hover:w-[200px] shrink-0 z-40 bg-white shadow-[1px_0_4px_rgba(0,0,0,0.08)] transition-[width] duration-200 ease-out flex flex-col py-2 overflow-hidden">
       {/* Logo + brand */}
@@ -103,15 +124,15 @@ export default function SideNav({ mode, onChangeMode }: SideNavProps) {
 
       {/* App mode nav items */}
       {NAV_ITEMS.map((item) => (
-        <DesktopNavItem
+        <DesktopNavLink
           key={item.mode}
           item={item}
-          active={mode === item.mode}
-          onClick={() => onChangeMode(item.mode)}
+          href={hrefForMode(item.mode, activeNetworkId)}
+          active={currentMode === item.mode}
         />
       ))}
 
-      {/* Docs — links to /docs route */}
+      {/* Docs */}
       <Link
         href="/docs"
         title={DOCS_ITEM.label}
@@ -128,7 +149,7 @@ export default function SideNav({ mode, onChangeMode }: SideNavProps) {
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Get Involved — pinned to bottom */}
+      {/* Bottom links */}
       <div className="border-t border-[var(--color-border)] mx-1 pt-1.5 mt-1.5 shrink-0">
         <Link
           href="/docs/proposal"
@@ -184,18 +205,18 @@ export default function SideNav({ mode, onChangeMode }: SideNavProps) {
   );
 }
 
-function DesktopNavItem({
+function DesktopNavLink({
   item,
+  href,
   active,
-  onClick,
 }: {
   item: NavDef;
+  href: string;
   active: boolean;
-  onClick: () => void;
 }) {
   return (
-    <button
-      onClick={onClick}
+    <Link
+      href={href}
       title={item.label}
       className={`flex items-center gap-3 mx-1 px-1 h-10 rounded-lg transition-colors shrink-0 overflow-hidden ${
         active
@@ -209,7 +230,7 @@ function DesktopNavItem({
       <span className="text-[13px] font-medium whitespace-nowrap opacity-0 group-hover/nav:opacity-100 transition-opacity duration-150 delay-75">
         {item.label}
       </span>
-    </button>
+    </Link>
   );
 }
 

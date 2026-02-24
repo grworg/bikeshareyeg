@@ -328,6 +328,7 @@ export default function SharedNetworkPage() {
             selectedRoute={null}
             flyTo={flyTo}
             designerMode={false}
+            activeOverlays={new Set(["docks"])}
           />
         </div>
       </div>
