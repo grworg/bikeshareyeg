@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { AppMode } from "@/lib/types";
-import { useNetwork } from "@/lib/NetworkContext";
+import { useNetworkStore } from "@/lib/networkStore";
 
 // ---------------------------------------------------------------------------
 // Nav items configuration — single source of truth for both desktop + mobile
@@ -108,7 +108,7 @@ function BikeLogo({ size = 20 }: { size?: number }) {
 export default function SideNav() {
   const pathname = usePathname();
   const currentMode = modeFromPathname(pathname);
-  const { activeNetworkId } = useNetwork();
+  const activeNetworkId = useNetworkStore((s) => s.activeNetworkId);
 
   return (
     <nav className="group/nav w-12 hover:w-[200px] shrink-0 z-40 bg-white shadow-[1px_0_4px_rgba(0,0,0,0.08)] transition-[width] duration-200 ease-out flex flex-col py-2 overflow-hidden">

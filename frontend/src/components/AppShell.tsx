@@ -1,60 +1,80 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { usePathname, useRouter } from "next/navigation";
 import SideNav, { MobileTabBar } from "@/components/SideNav";
 import MobileSidebar from "@/components/MobileSidebar";
 import ContextMenu from "@/components/ContextMenu";
 import OverlayControls from "@/components/OverlayControls";
 import AppModal from "@/components/Modal";
 import { useIsMobile } from "@/lib/useMediaQuery";
-import { useApp } from "@/lib/AppContext";
-import { useNetwork } from "@/lib/NetworkContext";
-import { useState } from "react";
+import { useAppStore } from "@/lib/appStore";
+import { useNetworkStore } from "@/lib/networkStore";
 import type { AppMode } from "@/lib/types";
-import { useRouter } from "next/navigation";
 
 const DeckMap = dynamic(() => import("@/components/DeckMap"), { ssr: false });
 
-interface AppShellProps {
-  children: React.ReactNode;
+function modeFromPathname(pathname: string): AppMode {
+  if (pathname.startsWith("/designer")) return "designer";
+  if (pathname.startsWith("/saved")) return "saved";
+  if (pathname.startsWith("/docs")) return "docs";
+  return "routing";
 }
 
-export default function AppShell({ children }: AppShellProps) {
+export default function AppShell({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();
   const router = useRouter();
-  const app = useApp();
-  const net = useNetwork();
-  const { mode } = app;
+  const pathname = usePathname();
+  const mode = modeFromPathname(pathname);
 
-  // ---- Mobile sidebar open/close ----
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  // ---- Zustand selectors (components only re-render when selected slice changes) ----
+  const flyTo = useAppStore((s) => s.flyTo);
+  const selectedStationId = useAppStore((s) => s.selectedStationId);
+  const contextMenu = useAppStore((s) => s.contextMenu);
+  const modal = useAppStore((s) => s.modal);
+  const activeOverlays = useAppStore((s) => s.activeOverlays);
+  const overlayData = useAppStore((s) => s.overlayData);
+  const loadingOverlays = useAppStore((s) => s.loadingOverlays);
+  const origin = useAppStore((s) => s.origin);
+  const destination = useAppStore((s) => s.destination);
+  const routes = useAppStore((s) => s.routes);
+  const selectedRouteIndex = useAppStore((s) => s.selectedRouteIndex);
+  const previewStations = useAppStore((s) => s.previewStations);
 
-  const handleMobileTab = useCallback(
-    (m: AppMode) => {
-      if (m === "docs") {
-        router.push("/docs");
-        return;
-      }
-      const targetPath = m === "routing" ? "/routing" : m === "saved" ? "/saved"
-        : net.activeNetworkId ? `/designer/${net.activeNetworkId}` : "/designer";
+  const stations = useNetworkStore((s) => s.stations);
+  const plannerWeights = useNetworkStore((s) => s.plannerWeights);
+  const decayRadii = useNetworkStore((s) => s.decayRadii);
+  const densityScales = useNetworkStore((s) => s.densityScales);
+  const plannerConfig = useNetworkStore((s) => s.plannerConfig);
+  const suitabilityData = useNetworkStore((s) => s.suitabilityData);
+  const showSuitability = useNetworkStore((s) => s.showSuitability);
+  const activeNetworkId = useNetworkStore((s) => s.activeNetworkId);
 
-      if (m === mode) {
-        setMobileSidebarOpen((o) => !o);
-      } else {
-        router.push(targetPath);
-        setMobileSidebarOpen(true);
-      }
-    },
-    [mode, router, net.activeNetworkId],
-  );
+  // ---- Init stores once ----
+  const initRef = useRef(false);
+  useEffect(() => {
+    if (initRef.current) return;
+    initRef.current = true;
+    useNetworkStore.getState().init();
+    useAppStore.getState().loadActiveOverlays();
+  }, []);
+
+  // ---- Clear selection on mode change ----
+  const prevModeRef = useRef(mode);
+  useEffect(() => {
+    if (prevModeRef.current !== mode) {
+      useAppStore.getState().clearSelection();
+      prevModeRef.current = mode;
+    }
+  }, [mode]);
 
   // ---- Clear selection if station removed (e.g. by undo) ----
   useEffect(() => {
-    if (app.selectedStationId && !net.stations.some((s) => s.id === app.selectedStationId)) {
-      app.setSelectedStationId(null);
+    if (selectedStationId && !stations.some((s) => s.id === selectedStationId)) {
+      useAppStore.getState().setSelectedStationId(null);
     }
-  }, [net.stations, app.selectedStationId, app]);
+  }, [stations, selectedStationId]);
 
   // ---- Keyboard shortcuts ----
   useEffect(() => {
@@ -63,99 +83,108 @@ export default function AppShell({ children }: AppShellProps) {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
       if (e.key === "Escape") {
-        if (app.modal) { app.closeModal(); return; }
-        if (app.contextMenu) { app.setContextMenu(null); return; }
-        if (app.selectedStationId) { app.setSelectedStationId(null); return; }
+        const s = useAppStore.getState();
+        if (s.modal) { s.closeModal(); return; }
+        if (s.contextMenu) { s.setContextMenu(null); return; }
+        if (s.selectedStationId) { s.setSelectedStationId(null); return; }
         return;
       }
 
-      if (mode === "designer" && e.key === "z" && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
-        e.preventDefault(); net.undo(); return;
+      const currentMode = modeFromPathname(window.location.pathname);
+      if (currentMode === "designer" && e.key === "z" && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+        e.preventDefault(); useNetworkStore.getState().undo(); return;
       }
-      if (mode === "designer" && ((e.key === "y" && (e.ctrlKey || e.metaKey)) || (e.key === "z" && (e.ctrlKey || e.metaKey) && e.shiftKey))) {
-        e.preventDefault(); net.redo(); return;
+      if (currentMode === "designer" && ((e.key === "y" && (e.ctrlKey || e.metaKey)) || (e.key === "z" && (e.ctrlKey || e.metaKey) && e.shiftKey))) {
+        e.preventDefault(); useNetworkStore.getState().redo(); return;
       }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [mode, app, net]);
+  }, []);
 
-  // ---- Map click handler that delegates to page-registered callbacks ----
-  const handleMapClick = useCallback(
-    (lngLat: { lng: number; lat: number }) => {
-      app.mapCallbacks.onMapClick?.(lngLat);
+  // ---- Mobile sidebar ----
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  const handleMobileTab = useCallback(
+    (m: AppMode) => {
+      if (m === "docs") { router.push("/docs"); return; }
+      const targetPath = m === "routing" ? "/routing" : m === "saved" ? "/saved"
+        : activeNetworkId ? `/designer/${activeNetworkId}` : "/designer";
+      if (m === mode) {
+        setMobileSidebarOpen((o) => !o);
+      } else {
+        router.push(targetPath);
+        setMobileSidebarOpen(true);
+      }
     },
-    [app.mapCallbacks],
+    [mode, router, activeNetworkId],
   );
 
-  const handleRightClick = useCallback(
-    (info: { screenX: number; screenY: number; lng: number; lat: number }) => {
-      app.mapCallbacks.onRightClick?.(info);
-    },
-    [app.mapCallbacks],
-  );
-
-  // ---- Station interactions (shared across all map modes) ----
+  // ---- Station interactions ----
   const handleStationClick = useCallback((stationId: string) => {
-    app.setContextMenu(null);
-    app.setSelectedStationId(stationId);
-    app.setAutoFocusName(false);
-  }, [app]);
+    useAppStore.getState().setContextMenu(null);
+    useAppStore.getState().setSelectedStationId(stationId);
+    useAppStore.getState().setAutoFocusName(false);
+  }, []);
 
   const handleStationDragEnd = useCallback(
     (stationId: string, lngLat: { lng: number; lat: number }) => {
-      net.moveStation(stationId, lngLat);
+      useNetworkStore.getState().moveStation(stationId, lngLat);
     },
-    [net],
+    [],
   );
 
   const handleAddStationAt = useCallback(
     (lngLat: { lng: number; lat: number }) => {
-      const newId = net.addStationAt(lngLat);
-      app.setSelectedStationId(newId);
-      app.setAutoFocusName(true);
+      const newId = useNetworkStore.getState().addStationAt(lngLat);
+      useAppStore.getState().setSelectedStationId(newId);
+      useAppStore.getState().setAutoFocusName(true);
     },
-    [net, app],
+    [],
   );
 
-  // ---- Map content ----
+  // ---- Derived ----
   const isDesigner = mode === "designer";
-  const displayStations = app.previewStations ?? net.stations;
+  const displayStations = previewStations ?? stations;
+  const selectedRoute = selectedRouteIndex !== null ? (routes[selectedRouteIndex] ?? null) : null;
+  const originLatLng = origin ? { lat: origin.lat, lng: origin.lng } : null;
+  const destLatLng = destination ? { lat: destination.lat, lng: destination.lng } : null;
 
+  // ---- Map content ----
   const mapContent = (
     <>
       <DeckMap
         stations={displayStations}
-        origin={mode === "routing" ? app.originLatLng : null}
-        destination={mode === "routing" ? app.destLatLng : null}
-        selectedRoute={mode === "routing" ? app.selectedRoute : null}
-        flyTo={app.flyTo}
-        onMapClick={handleMapClick}
-        onRightClick={isDesigner ? handleRightClick : undefined}
+        origin={mode === "routing" ? originLatLng : null}
+        destination={mode === "routing" ? destLatLng : null}
+        selectedRoute={mode === "routing" ? selectedRoute : null}
+        flyTo={flyTo}
+        onMapClick={useAppStore.getState().fireMapClick}
+        onRightClick={isDesigner ? useAppStore.getState().fireMapRightClick : undefined}
         designerMode={isDesigner}
-        selectedStationId={app.selectedStationId}
+        selectedStationId={selectedStationId}
         onStationClick={handleStationClick}
-        onDeleteStation={net.deleteStation}
+        onDeleteStation={useNetworkStore.getState().deleteStation}
         onStationDragEnd={handleStationDragEnd}
-        overlayData={app.overlayData}
-        activeOverlays={app.activeOverlays}
-        suitabilityData={net.suitabilityData}
-        suitabilityWeights={net.plannerWeights}
-        suitabilityDecayRadii={net.decayRadii}
-        suitabilityDensityScales={net.densityScales}
-        suitabilityConfig={net.plannerConfig}
-        showSuitability={net.showSuitability && isDesigner}
+        overlayData={overlayData}
+        activeOverlays={activeOverlays}
+        suitabilityData={suitabilityData}
+        suitabilityWeights={plannerWeights}
+        suitabilityDecayRadii={decayRadii}
+        suitabilityDensityScales={densityScales}
+        suitabilityConfig={plannerConfig}
+        showSuitability={showSuitability && isDesigner}
       />
       <OverlayControls
-        activeOverlays={app.activeOverlays}
-        loadingOverlays={app.loadingOverlays}
-        onToggle={app.toggleOverlay}
+        activeOverlays={activeOverlays}
+        loadingOverlays={loadingOverlays}
+        onToggle={useAppStore.getState().toggleOverlay}
       />
-      {app.contextMenu && isDesigner && (
+      {contextMenu && isDesigner && (
         <ContextMenu
-          menu={app.contextMenu}
+          menu={contextMenu}
           onAddStation={handleAddStationAt}
-          onClose={() => app.setContextMenu(null)}
+          onClose={() => useAppStore.getState().setContextMenu(null)}
         />
       )}
     </>
@@ -171,21 +200,18 @@ export default function AppShell({ children }: AppShellProps) {
         <div className="flex-1 relative min-h-0">
           {mapContent}
         </div>
-
         <MobileSidebar
           open={mobileSidebarOpen}
           onClose={() => setMobileSidebarOpen(false)}
         >
           {children}
         </MobileSidebar>
-
         <MobileTabBar mode={mode} onChangeMode={handleMobileTab} />
-        <AppModal modal={app.modal} onClose={app.closeModal} />
+        <AppModal modal={modal} onClose={useAppStore.getState().closeModal} />
       </main>
     );
   }
 
-  // Desktop layout
   const SIDEBAR_W = 380;
   const NAV_W = 48;
   const panelLeft = NAV_W + SIDEBAR_W;
@@ -201,12 +227,10 @@ export default function AppShell({ children }: AppShellProps) {
           {children}
         </div>
       </div>
-
       <div className="absolute top-0 right-0 bottom-0 flex flex-col" style={{ left: panelLeft }}>
         {mapContent}
       </div>
-
-      <AppModal modal={app.modal} onClose={app.closeModal} />
+      <AppModal modal={modal} onClose={useAppStore.getState().closeModal} />
     </main>
   );
 }

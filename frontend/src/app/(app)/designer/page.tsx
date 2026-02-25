@@ -2,19 +2,19 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useNetwork } from "@/lib/NetworkContext";
+import { useNetworkStore } from "@/lib/networkStore";
 import { saveNetwork } from "@/lib/savedNetworks";
 
 export default function DesignerNewPage() {
   const router = useRouter();
-  const net = useNetwork();
+  const activeNetworkId = useNetworkStore((s) => s.activeNetworkId);
 
   useEffect(() => {
-    if (net.activeNetworkId) {
-      router.replace(`/designer/${net.activeNetworkId}`);
+    if (activeNetworkId) {
+      router.replace(`/designer/${activeNetworkId}`);
       return;
     }
-    // Create a new network and redirect
+    const s = useNetworkStore.getState();
     const id = crypto.randomUUID();
     const draft = {
       version: 2 as const,
@@ -22,16 +22,16 @@ export default function DesignerNewPage() {
       name: "Untitled Network",
       savedAt: new Date().toISOString(),
       stations: [],
-      plannerConfig: net.plannerConfig,
-      plannerWeights: net.plannerWeights,
-      decayRadii: net.decayRadii,
-      densityScales: net.densityScales,
+      plannerConfig: s.plannerConfig,
+      plannerWeights: s.plannerWeights,
+      decayRadii: s.decayRadii,
+      densityScales: s.densityScales,
       buildLog: [],
     };
     saveNetwork(draft);
-    net.loadNetwork(draft);
+    s.loadNetwork(draft);
     router.replace(`/designer/${id}`);
-  }, [net, router]);
+  }, [activeNetworkId, router]);
 
   return (
     <div className="h-full flex items-center justify-center">

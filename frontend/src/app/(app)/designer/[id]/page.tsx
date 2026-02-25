@@ -1,48 +1,41 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { useApp } from "@/lib/AppContext";
-import { useNetwork } from "@/lib/NetworkContext";
+import { useAppStore } from "@/lib/appStore";
+import { useNetworkStore } from "@/lib/networkStore";
 import AppSidebar from "@/components/AppSidebar";
 
 export default function DesignerPage() {
   const { id } = useParams<{ id: string }>();
-  const app = useApp();
-  const net = useNetwork();
+  const activeNetworkId = useNetworkStore((s) => s.activeNetworkId);
   const [loadFailed, setLoadFailed] = useState(false);
 
   // Load network by ID if not already the active one
   useEffect(() => {
     if (!id) return;
-    if (id === net.activeNetworkId) return;
-    net.loadNetworkById(id).then((ok) => {
+    if (id === useNetworkStore.getState().activeNetworkId) return;
+    useNetworkStore.getState().loadNetworkById(id).then((ok) => {
       if (!ok) setLoadFailed(true);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // Register designer-specific map click handlers
-  const handleDesignerMapClick = useCallback(() => {
-    app.setSelectedStationId(null);
-    app.setContextMenu(null);
-  }, [app]);
-
-  const handleRightClick = useCallback(
-    (info: { screenX: number; screenY: number; lng: number; lat: number }) => {
-      app.setContextMenu({ x: info.screenX, y: info.screenY, lng: info.lng, lat: info.lat });
-    },
-    [app],
-  );
-
+  // Register designer-specific map click handlers (stable — no deps)
   useEffect(() => {
-    app.registerMapCallbacks({
-      onMapClick: handleDesignerMapClick,
-      onRightClick: handleRightClick,
+    useAppStore.getState().registerMapCallbacks({
+      onMapClick: () => {
+        useAppStore.getState().setSelectedStationId(null);
+        useAppStore.getState().setContextMenu(null);
+      },
+      onRightClick: (info) => {
+        useAppStore.getState().setContextMenu({
+          x: info.screenX, y: info.screenY,
+          lng: info.lng, lat: info.lat,
+        });
+      },
     });
-    return () => app.registerMapCallbacks(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handleDesignerMapClick, handleRightClick]);
+    return () => useAppStore.getState().registerMapCallbacks(null);
+  }, []);
 
   if (loadFailed) {
     return (

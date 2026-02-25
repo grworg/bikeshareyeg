@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useApp } from "@/lib/AppContext";
-import { useNetwork } from "@/lib/NetworkContext";
-import type { GeocodedPlace, SavedNetwork } from "@/lib/types";
+import { usePathname, useRouter } from "next/navigation";
+import { useAppStore } from "@/lib/appStore";
+import { useNetworkStore } from "@/lib/networkStore";
+import type { AppMode, GeocodedPlace, SavedNetwork } from "@/lib/types";
 import SearchPanel from "@/components/SearchPanel";
 import PlannerControls from "@/components/PlannerControls";
 import StationList from "@/components/StationList";
@@ -21,21 +21,50 @@ import {
   saveNetwork as persistNetwork,
 } from "@/lib/savedNetworks";
 
-// ---------------------------------------------------------------------------
-// Sub-tab for designer mode
-// ---------------------------------------------------------------------------
+function modeFromPathname(pathname: string): AppMode {
+  if (pathname.startsWith("/designer")) return "designer";
+  if (pathname.startsWith("/saved")) return "saved";
+  if (pathname.startsWith("/docs")) return "docs";
+  return "routing";
+}
 
 export type DesignerTab = "planner" | "stations" | "history";
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 export default function AppSidebar() {
-  const app = useApp();
-  const net = useNetwork();
+  const pathname = usePathname();
+  const mode = modeFromPathname(pathname);
   const router = useRouter();
-  const { mode } = app;
+
+  // ---- Zustand selectors ----
+  const origin = useAppStore((s) => s.origin);
+  const destination = useAppStore((s) => s.destination);
+  const routes = useAppStore((s) => s.routes);
+  const routeNotices = useAppStore((s) => s.routeNotices);
+  const selectedRouteIndex = useAppStore((s) => s.selectedRouteIndex);
+  const isLoadingRoutes = useAppStore((s) => s.isLoadingRoutes);
+  const departureTime = useAppStore((s) => s.departureTime);
+  const selectedStationId = useAppStore((s) => s.selectedStationId);
+  const autoFocusName = useAppStore((s) => s.autoFocusName);
+  const overlayData = useAppStore((s) => s.overlayData);
+  const activeOverlays = useAppStore((s) => s.activeOverlays);
+  const previewStations = useAppStore((s) => s.previewStations);
+
+  const stations = useNetworkStore((s) => s.stations);
+  const buildLog = useNetworkStore((s) => s.buildLog);
+  const activeNetworkId = useNetworkStore((s) => s.activeNetworkId);
+  const activeNetworkName = useNetworkStore((s) => s.activeNetworkName);
+  const plannerConfig = useNetworkStore((s) => s.plannerConfig);
+  const plannerWeights = useNetworkStore((s) => s.plannerWeights);
+  const decayRadii = useNetworkStore((s) => s.decayRadii);
+  const densityScales = useNetworkStore((s) => s.densityScales);
+  const showSuitability = useNetworkStore((s) => s.showSuitability);
+  const isSuitabilityLoading = useNetworkStore((s) => s.isSuitabilityLoading);
+  const isOptimizing = useNetworkStore((s) => s.isOptimizing);
+  const isStepping = useNetworkStore((s) => s.isStepping);
+  const optimizeError = useNetworkStore((s) => s.optimizeError);
+  const plannerCoverage = useNetworkStore((s) => s.plannerCoverage);
+  const generatedStations = useNetworkStore((s) => s.generatedStations);
+  const lastAutoSaveAt = useNetworkStore((s) => s.lastAutoSaveAt);
 
   const [designerTab, setDesignerTab] = useState<DesignerTab>("planner");
   const [isEditingName, setIsEditingName] = useState(false);
@@ -46,62 +75,60 @@ export default function AppSidebar() {
   const [shareError, setShareError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const { stations, buildLog } = net;
-  const selectedStation = stations.find((s) => s.id === app.selectedStationId) ?? null;
+  const selectedStation = stations.find((s) => s.id === selectedStationId) ?? null;
   const totalBikes = stations.reduce((sum, s) => sum + s.bikes, 0);
   const totalDocks = stations.reduce((sum, s) => sum + s.capacity, 0);
 
-  // ---- Handlers ----
+  // ---- Handlers (use getState() to avoid stale closures) ----
 
   const handleFlyToPlace = useCallback((place: GeocodedPlace) => {
-    app.setFlyTo({ latitude: place.lat, longitude: place.lng, zoom: 14, _ts: Date.now() });
-  }, [app]);
+    useAppStore.getState().setFlyTo({ latitude: place.lat, longitude: place.lng, zoom: 14, _ts: Date.now() });
+  }, []);
 
   const handleSaveNetwork = useCallback(() => {
-    if (net.activeNetworkId) {
-      net.saveCurrentNetwork();
-      app.setModal({ type: "alert", title: "Saved", message: `"${net.activeNetworkName}" has been saved.` });
+    const ns = useNetworkStore.getState();
+    if (ns.activeNetworkId) {
+      ns.saveCurrentNetwork();
+      useAppStore.getState().setModal({ type: "alert", title: "Saved", message: `"${ns.activeNetworkName}" has been saved.` });
     } else {
-      const defaultName = `Network \u2013 ${stations.length} stations`;
-      app.setModal({
+      const defaultName = `Network \u2013 ${ns.stations.length} stations`;
+      useAppStore.getState().setModal({
         type: "prompt",
         title: "Save Network",
         message: "Give your network a name.",
         defaultValue: defaultName,
         placeholder: "Network name\u2026",
         onSubmit: (name: string) => {
-          const finalName = name.trim() || defaultName;
-          net.saveAsNetwork(finalName);
-          router.push(`/designer/${net.activeNetworkId || ""}`);
+          useNetworkStore.getState().saveAsNetwork(name.trim() || defaultName);
         },
       });
     }
-  }, [net, app, stations.length, router]);
+  }, []);
 
   const handleSaveAsNetwork = useCallback(() => {
-    const defaultName = net.activeNetworkName
-      ? `${net.activeNetworkName} (copy)`
-      : `Network \u2013 ${stations.length} stations`;
-    app.setModal({
+    const ns = useNetworkStore.getState();
+    const defaultName = ns.activeNetworkName
+      ? `${ns.activeNetworkName} (copy)`
+      : `Network \u2013 ${ns.stations.length} stations`;
+    useAppStore.getState().setModal({
       type: "prompt",
       title: "Save As New Network",
       message: "Give this copy a new name.",
       defaultValue: defaultName,
       placeholder: "Network name\u2026",
       onSubmit: (name: string) => {
-        const finalName = name.trim() || defaultName;
-        net.saveAsNetwork(finalName);
+        useNetworkStore.getState().saveAsNetwork(name.trim() || defaultName);
       },
     });
-  }, [net, app, stations.length]);
+  }, []);
 
   const handleNewNetwork = useCallback(() => {
     const doNew = () => {
-      net.newNetwork();
+      useNetworkStore.getState().newNetwork();
       router.push("/designer");
     };
-    if (stations.length > 0) {
-      app.setModal({
+    if (useNetworkStore.getState().stations.length > 0) {
+      useAppStore.getState().setModal({
         type: "confirm",
         title: "New Network",
         message: "Start a new empty network? Any unsaved changes will be lost.",
@@ -110,66 +137,62 @@ export default function AppSidebar() {
     } else {
       doNew();
     }
-  }, [stations.length, net, app, router]);
+  }, [router]);
 
   const handleClearAll = useCallback(() => {
-    if (stations.length === 0) return;
-    app.setModal({
+    const ns = useNetworkStore.getState();
+    if (ns.stations.length === 0) return;
+    useAppStore.getState().setModal({
       type: "confirm",
       title: "Clear All Stations",
-      message: `This will remove all ${stations.length} stations from your network. This action can be undone.`,
+      message: `This will remove all ${ns.stations.length} stations from your network. This action can be undone.`,
       onConfirm: () => {
-        net.resetStations();
-        app.setSelectedStationId(null);
+        useNetworkStore.getState().resetStations();
+        useAppStore.getState().setSelectedStationId(null);
       },
     });
-  }, [stations.length, net, app]);
+  }, []);
 
   const handleLoadNetwork = useCallback((network: SavedNetwork) => {
-    net.loadNetwork(network);
+    useNetworkStore.getState().loadNetwork(network);
     router.push(`/designer/${network.id}`);
-  }, [net, router]);
+  }, [router]);
 
   const handleSeedLRT = useCallback(() => {
-    const lrtData = app.overlayData.lrt;
+    const as = useAppStore.getState();
+    const lrtData = as.overlayData.lrt;
     if (!lrtData) {
-      if (!app.activeOverlays.has("lrt")) {
-        app.setActiveOverlays((prev) => new Set([...prev, "lrt"]));
+      if (!as.activeOverlays.has("lrt")) {
+        as.setActiveOverlays((prev) => new Set([...prev, "lrt"]));
       }
-      app.setModal({ type: "alert", title: "LRT Data Loading", message: "LRT data is still loading \u2014 try again in a moment." });
+      as.setModal({ type: "alert", title: "LRT Data Loading", message: "LRT data is still loading \u2014 try again in a moment." });
       return;
     }
     const lrtPoints = lrtData.features.filter((f) => f.geometry.type === "Point");
     if (lrtPoints.length === 0) {
-      app.setModal({ type: "alert", title: "No LRT Stations", message: "No LRT station points found in overlay data." });
+      as.setModal({ type: "alert", title: "No LRT Stations", message: "No LRT station points found in overlay data." });
       return;
     }
-    const result = net.seedLRT(app.overlayData, app.activeOverlays);
-    // Check if any were added by checking station count change
-    if (net.stations.length === stations.length && lrtPoints.length > 0) {
-      app.setModal({ type: "alert", title: "Already Seeded", message: "All LRT stations already have docks nearby." });
+    const added = useNetworkStore.getState().seedLRT(as.overlayData);
+    if (added === 0) {
+      as.setModal({ type: "alert", title: "Already Seeded", message: "All LRT stations already have docks nearby." });
     }
-  }, [app, net, stations.length]);
+  }, []);
 
   // ---- Share handler ----
   const handleShare = useCallback(async () => {
-    if (!net.activeNetworkId) return;
+    const ns = useNetworkStore.getState();
+    if (!ns.activeNetworkId) return;
     setIsSharing(true);
     setShareError(null);
     try {
-      const draft = net.buildDraft(net.activeNetworkId, net.activeNetworkName);
+      const draft = ns.buildDraft(ns.activeNetworkId, ns.activeNetworkName);
       const secret = generateOwnerSecret();
       const hash = await hashOwnerSecret(secret);
       const result = await apiShareNetwork(hash, draft);
       storeOwnerSecret(result.id, secret);
-
-      const updated: SavedNetwork = {
-        ...draft,
-        shareId: result.id,
-        sharedAt: new Date().toISOString(),
-      };
+      const updated: SavedNetwork = { ...draft, shareId: result.id, sharedAt: new Date().toISOString() };
       persistNetwork(updated);
-
       const url = `${window.location.origin}/network/${result.id}`;
       try {
         await navigator.clipboard.writeText(url);
@@ -183,10 +206,11 @@ export default function AppSidebar() {
     } finally {
       setIsSharing(false);
     }
-  }, [net]);
+  }, []);
 
   const handleCopyShareLink = useCallback(async () => {
-    const draft = net.buildDraft(net.activeNetworkId ?? "", net.activeNetworkName);
+    const ns = useNetworkStore.getState();
+    const draft = ns.buildDraft(ns.activeNetworkId ?? "", ns.activeNetworkName);
     if (!draft.shareId) return;
     const url = `${window.location.origin}/network/${draft.shareId}`;
     try {
@@ -196,31 +220,36 @@ export default function AppSidebar() {
     } catch {
       prompt("Copy this link:", url);
     }
-  }, [net]);
+  }, []);
 
-  // Check if current network is already shared
-  const currentDraft = net.activeNetworkId ? net.buildDraft(net.activeNetworkId, net.activeNetworkName) : null;
+  const currentDraft = activeNetworkId
+    ? useNetworkStore.getState().buildDraft(activeNetworkId, activeNetworkName)
+    : null;
   const isShared = !!currentDraft?.shareId;
+
+  // canUndo / canRedo are methods, subscribe to _past/_future length
+  const pastLen = useNetworkStore((s) => s._past.length);
+  const futureLen = useNetworkStore((s) => s._future.length);
+  const canUndo = pastLen > 0;
+  const canRedo = futureLen > 0;
 
   return (
     <div className="h-full bg-white flex flex-col">
-      {/* ── Active Network bar (persistent across all modes except docs) ── */}
+      {/* ── Active Network bar ── */}
       {mode !== "docs" && mode !== "saved" && (
         <div className="px-4 pt-3 pb-2 border-b border-[var(--color-border)] bg-[#f8f9fa] shrink-0">
-          {/* Network name (click to edit) */}
           <div className="flex items-center gap-2 mb-1.5">
-            {/* Auto-save indicator */}
             <div
               className="w-2 h-2 rounded-full shrink-0"
-              style={{ backgroundColor: net.activeNetworkId ? "#34a853" : "#9aa0a6" }}
-              title={net.lastAutoSaveAt ? `Auto-saved ${new Date(net.lastAutoSaveAt).toLocaleTimeString()}` : net.activeNetworkId ? "Saved" : "Unsaved"}
+              style={{ backgroundColor: activeNetworkId ? "#34a853" : "#9aa0a6" }}
+              title={lastAutoSaveAt ? `Auto-saved ${new Date(lastAutoSaveAt).toLocaleTimeString()}` : activeNetworkId ? "Saved" : "Unsaved"}
             />
             {isEditingName ? (
               <form
                 className="flex-1 flex gap-1"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (editNameValue.trim()) net.renameNetwork(editNameValue.trim());
+                  if (editNameValue.trim()) useNetworkStore.getState().renameNetwork(editNameValue.trim());
                   setIsEditingName(false);
                 }}
               >
@@ -231,22 +260,21 @@ export default function AppSidebar() {
                   className="flex-1 text-[13px] font-medium px-1.5 py-0.5 border border-[var(--color-border)] rounded focus:outline-none focus:border-[var(--color-blue)] bg-white"
                   onKeyDown={(e) => e.key === "Escape" && setIsEditingName(false)}
                   onBlur={() => {
-                    if (editNameValue.trim()) net.renameNetwork(editNameValue.trim());
+                    if (editNameValue.trim()) useNetworkStore.getState().renameNetwork(editNameValue.trim());
                     setIsEditingName(false);
                   }}
                 />
               </form>
             ) : (
               <button
-                onClick={() => { setEditNameValue(net.activeNetworkName); setIsEditingName(true); }}
+                onClick={() => { setEditNameValue(activeNetworkName); setIsEditingName(true); }}
                 className="flex-1 text-left text-[13px] font-medium text-[var(--color-fg)] hover:text-[var(--color-blue)] transition-colors truncate"
                 title="Click to rename"
               >
-                {net.activeNetworkName}
+                {activeNetworkName}
               </button>
             )}
           </div>
-          {/* Network actions */}
           <div className="flex items-center gap-1 flex-wrap">
             <button
               onClick={handleNewNetwork}
@@ -259,9 +287,9 @@ export default function AppSidebar() {
               onClick={handleSaveNetwork}
               className="h-6 px-2 text-[10px] font-medium rounded text-[var(--color-blue)] hover:bg-[#e8f0fe] transition-colors"
             >
-              {net.activeNetworkId ? "Save" : "Save As\u2026"}
+              {activeNetworkId ? "Save" : "Save As\u2026"}
             </button>
-            {net.activeNetworkId && (
+            {activeNetworkId && (
               <button
                 onClick={handleSaveAsNetwork}
                 className="h-6 px-2 text-[10px] font-medium rounded text-[var(--color-secondary)] hover:text-[var(--color-fg)] hover:bg-[#e8eaed] transition-colors"
@@ -269,8 +297,7 @@ export default function AppSidebar() {
                 Save As\u2026
               </button>
             )}
-            {/* Share button */}
-            {net.activeNetworkId && (
+            {activeNetworkId && (
               isShared ? (
                 <button
                   onClick={handleCopyShareLink}
@@ -291,8 +318,8 @@ export default function AppSidebar() {
               )
             )}
             <div className="flex-1" />
-            {net.lastAutoSaveAt && (
-              <span className="text-[9px] text-[var(--color-secondary)] tabular-nums mr-1" title="Auto-saved">
+            {lastAutoSaveAt && (
+              <span className="text-[9px] text-[var(--color-secondary)] tabular-nums mr-1">
                 Auto-saved
               </span>
             )}
@@ -300,71 +327,54 @@ export default function AppSidebar() {
               {stations.length} stations
             </span>
           </div>
-          {shareError && (
-            <p className="text-[10px] text-red-600 mt-1">{shareError}</p>
-          )}
+          {shareError && <p className="text-[10px] text-red-600 mt-1">{shareError}</p>}
         </div>
       )}
 
       {/* ── Saved networks mode ── */}
       {mode === "saved" ? (
         <div className="flex-1 flex flex-col min-h-0">
-          <SidebarHeader
-            title="Saved Networks"
-            subtitle="Load a previously saved network draft"
-          />
-          <SavedNetworksList onLoad={handleLoadNetwork} activeNetworkId={net.activeNetworkId} />
+          <SidebarHeader title="Saved Networks" subtitle="Load a previously saved network draft" />
+          <SavedNetworksList onLoad={handleLoadNetwork} activeNetworkId={activeNetworkId} />
         </div>
       ) : mode === "routing" ? (
-        /* ── Routing mode ── */
         <div className="flex-1 flex flex-col min-h-0">
-          <SidebarHeader
-            title="Trip Planner"
-            subtitle="Plan trips with bike share, transit & more"
-          />
+          <SidebarHeader title="Trip Planner" subtitle="Plan trips with bike share, transit & more" />
           <div className="flex-1 min-h-0 flex flex-col overflow-y-auto">
             <SearchPanel
-              origin={app.origin}
-              destination={app.destination}
-              onSetOrigin={app.setOrigin}
-              onSetDestination={app.setDestination}
-              routes={app.routes}
-              routeNotices={app.routeNotices}
-              selectedRouteIndex={app.selectedRouteIndex}
-              onSelectRoute={(i) => app.setSelectedRouteIndex(i)}
-              isLoading={app.isLoadingRoutes}
-              departureTime={app.departureTime}
-              onSetDepartureTime={app.setDepartureTime}
-              onGetDirections={app.getDirections}
+              origin={origin}
+              destination={destination}
+              onSetOrigin={useAppStore.getState().setOrigin}
+              onSetDestination={useAppStore.getState().setDestination}
+              routes={routes}
+              routeNotices={routeNotices}
+              selectedRouteIndex={selectedRouteIndex}
+              onSelectRoute={useAppStore.getState().setSelectedRouteIndex}
+              isLoading={isLoadingRoutes}
+              departureTime={departureTime}
+              onSetDepartureTime={useAppStore.getState().setDepartureTime}
+              onGetDirections={useAppStore.getState().getDirections}
               onFlyToPlace={handleFlyToPlace}
             />
           </div>
         </div>
       ) : mode === "designer" ? (
-        /* ── Designer mode ── */
         <div className="flex-1 flex flex-col min-h-0">
-          {/* Header + stats */}
           <div className="px-5 pt-3 pb-2 border-b border-[var(--color-border)]">
             <p className="text-[12px] text-[var(--color-secondary)]">
               Right-click map to add stations
             </p>
             <div className="flex items-center gap-4 mt-1.5 text-[12px]">
-              <span className="text-[var(--color-fg)] font-medium">
-                {stations.length} stations
-              </span>
-              <span className="text-[var(--color-secondary)]">
-                {totalBikes} bikes
-              </span>
-              <span className="text-[var(--color-secondary)]">
-                {totalDocks} docks
-              </span>
+              <span className="text-[var(--color-fg)] font-medium">{stations.length} stations</span>
+              <span className="text-[var(--color-secondary)]">{totalBikes} bikes</span>
+              <span className="text-[var(--color-secondary)]">{totalDocks} docks</span>
             </div>
             <div className="flex items-center gap-1.5 mt-2 -mx-1">
-              <IconBtn onClick={net.undo} disabled={!net.canUndo} title="Undo (Ctrl+Z)">
+              <IconBtn onClick={() => useNetworkStore.getState().undo()} disabled={!canUndo} title="Undo (Ctrl+Z)">
                 <path d="M3 10h13a4 4 0 010 8H7" />
                 <path d="M7 6L3 10l4 4" />
               </IconBtn>
-              <IconBtn onClick={net.redo} disabled={!net.canRedo} title="Redo (Ctrl+Y)">
+              <IconBtn onClick={() => useNetworkStore.getState().redo()} disabled={!canRedo} title="Redo (Ctrl+Y)">
                 <path d="M21 10H8a4 4 0 000 8h10" />
                 <path d="M17 6l4 4-4 4" />
               </IconBtn>
@@ -378,80 +388,64 @@ export default function AppSidebar() {
               </button>
             </div>
           </div>
-
-          {/* Tab bar */}
           <div className="flex border-b border-[var(--color-border)] shrink-0">
-            <TabButton
-              label="Network Planner"
-              active={designerTab === "planner"}
-              onClick={() => setDesignerTab("planner")}
-            />
-            <TabButton
-              label={`Stations${stations.length > 0 ? ` (${stations.length})` : ""}`}
-              active={designerTab === "stations"}
-              onClick={() => setDesignerTab("stations")}
-            />
-            <TabButton
-              label={`History${buildLog.length > 0 ? ` (${buildLog.length})` : ""}`}
-              active={designerTab === "history"}
-              onClick={() => setDesignerTab("history")}
-            />
+            <TabButton label="Network Planner" active={designerTab === "planner"} onClick={() => setDesignerTab("planner")} />
+            <TabButton label={`Stations${stations.length > 0 ? ` (${stations.length})` : ""}`} active={designerTab === "stations"} onClick={() => setDesignerTab("stations")} />
+            <TabButton label={`History${buildLog.length > 0 ? ` (${buildLog.length})` : ""}`} active={designerTab === "history"} onClick={() => setDesignerTab("history")} />
           </div>
-
-          {/* Tab content */}
           <div className="flex-1 overflow-y-auto min-h-0">
             {designerTab === "planner" ? (
               <PlannerControls
                 expanded={true}
                 onToggleExpanded={() => {}}
-                weights={net.plannerWeights}
-                onUpdateWeights={net.setPlannerWeights}
-                decayRadii={net.decayRadii}
-                onUpdateDecayRadii={net.setDecayRadii}
-                densityScales={net.densityScales}
-                onUpdateDensityScales={net.setDensityScales}
-                config={net.plannerConfig}
-                onUpdateConfig={net.setPlannerConfig}
-                showSuitability={net.showSuitability}
-                onToggleSuitability={net.toggleSuitability}
-                isSuitabilityLoading={net.isSuitabilityLoading}
-                onRunOptimize={net.runOptimize}
-                isOptimizing={net.isOptimizing}
-                optimizeError={net.optimizeError}
-                coverage={net.plannerCoverage}
-                onApplyStations={net.applyStations}
-                hasGeneratedStations={!!net.generatedStations}
+                weights={plannerWeights}
+                onUpdateWeights={useNetworkStore.getState().setPlannerWeights}
+                decayRadii={decayRadii}
+                onUpdateDecayRadii={useNetworkStore.getState().setDecayRadii}
+                densityScales={densityScales}
+                onUpdateDensityScales={useNetworkStore.getState().setDensityScales}
+                config={plannerConfig}
+                onUpdateConfig={useNetworkStore.getState().setPlannerConfig}
+                showSuitability={showSuitability}
+                onToggleSuitability={useNetworkStore.getState().toggleSuitability}
+                isSuitabilityLoading={isSuitabilityLoading}
+                onRunOptimize={useNetworkStore.getState().runOptimize}
+                isOptimizing={isOptimizing}
+                optimizeError={optimizeError}
+                coverage={plannerCoverage}
+                onApplyStations={useNetworkStore.getState().applyStations}
+                hasGeneratedStations={!!generatedStations}
                 onSeedLRT={handleSeedLRT}
                 stationCount={stations.length}
-                onStep={net.step}
-                isStepping={net.isStepping}
+                onStep={useNetworkStore.getState().step}
+                isStepping={isStepping}
               />
             ) : designerTab === "history" ? (
               <BuildHistory
                 buildLog={buildLog}
                 stations={stations}
-                onPreviewSnapshot={app.setPreviewStations}
-                onRevertToSnapshot={net.revertToSnapshot}
+                onPreviewSnapshot={useAppStore.getState().setPreviewStations}
+                onRevertToSnapshot={useNetworkStore.getState().revertToSnapshot}
               />
             ) : (
               <div className="flex flex-col h-full min-h-0">
                 {selectedStation && (
                   <StationEditor
                     station={selectedStation}
-                    autoFocusName={app.autoFocusName}
-                    onUpdate={(updates) => net.updateStation(selectedStation.id, updates)}
-                    onCommit={net.commitStation}
+                    autoFocusName={autoFocusName}
+                    onUpdate={(updates) => useNetworkStore.getState().updateStation(selectedStation.id, updates)}
+                    onCommit={useNetworkStore.getState().commitStation}
                     onDelete={() => {
-                      net.deleteStation(selectedStation.id);
-                      app.setSelectedStationId(null);
+                      useNetworkStore.getState().deleteStation(selectedStation.id);
+                      useAppStore.getState().setSelectedStationId(null);
                     }}
-                    onDeselect={() => app.setSelectedStationId(null)}
+                    onDeselect={() => useAppStore.getState().setSelectedStationId(null)}
                   />
                 )}
                 <StationList
                   stations={stations}
-                  selectedStationId={app.selectedStationId}
-                  onSelectStation={app.setSelectedStationId}
+                  selectedStationId={selectedStationId}
+                  onSelectStation={useAppStore.getState().setSelectedStationId}
                 />
               </div>
             )}
@@ -475,43 +469,21 @@ function SidebarHeader({ title, subtitle }: { title: string; subtitle: string })
   );
 }
 
-function TabButton({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
+function TabButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       className={`flex-1 py-2.5 text-[13px] font-medium transition-colors relative ${
-        active
-          ? "text-[var(--color-blue)]"
-          : "text-[var(--color-secondary)] hover:text-[var(--color-fg)] hover:bg-[var(--color-surface-hover)]"
+        active ? "text-[var(--color-blue)]" : "text-[var(--color-secondary)] hover:text-[var(--color-fg)] hover:bg-[var(--color-surface-hover)]"
       }`}
     >
       {label}
-      {active && (
-        <div className="absolute bottom-0 left-4 right-4 h-[3px] bg-[var(--color-blue)] rounded-t-full" />
-      )}
+      {active && <div className="absolute bottom-0 left-4 right-4 h-[3px] bg-[var(--color-blue)] rounded-t-full" />}
     </button>
   );
 }
 
-function IconBtn({
-  onClick,
-  disabled,
-  title,
-  children,
-}: {
-  onClick: () => void;
-  disabled: boolean;
-  title: string;
-  children: React.ReactNode;
-}) {
+function IconBtn({ onClick, disabled, title, children }: { onClick: () => void; disabled: boolean; title: string; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
@@ -519,16 +491,7 @@ function IconBtn({
       title={title}
       className="h-7 w-7 rounded-full flex items-center justify-center transition-colors disabled:opacity-30 hover:bg-[var(--color-surface-hover)] disabled:hover:bg-transparent"
     >
-      <svg
-        width="15"
-        height="15"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="#5f6368"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5f6368" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         {children}
       </svg>
     </button>
