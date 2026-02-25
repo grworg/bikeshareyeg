@@ -6,11 +6,14 @@ import { reverseGeocode } from "@/lib/api";
 import AppSidebar from "@/components/AppSidebar";
 
 export default function RoutingPage() {
-  // Use a ref so the callback always reads current origin without re-registering
   const originRef = useRef(useAppStore.getState().origin);
 
+  // subscribeWithSelector: only fires when origin actually changes
   useEffect(() => {
-    return useAppStore.subscribe((s) => { originRef.current = s.origin; });
+    return useAppStore.subscribe(
+      (s) => s.origin,
+      (origin) => { originRef.current = origin; },
+    );
   }, []);
 
   useEffect(() => {

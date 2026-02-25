@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { devtools, subscribeWithSelector } from "zustand/middleware";
 import type {
   BikeStation,
   GeocodedPlace,
@@ -24,6 +25,13 @@ export interface MapCallbacks {
 }
 
 // ---------------------------------------------------------------------------
+// Module-level state (not serializable / no UI relevance)
+// ---------------------------------------------------------------------------
+
+let mapCallbacks: MapCallbacks = {};
+const loadingKeys = new Set<OverlayKey>();
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -44,10 +52,9 @@ function zoomForBounds(p1: LatLng, p2: LatLng): number {
 // ---------------------------------------------------------------------------
 
 interface AppStore {
-  // Map — callbacks stored directly, no re-render on registration
+  // Map — callbacks stored in module-level variable, not in state
   flyTo: FlyToTarget | null;
   setFlyTo: (t: FlyToTarget | null) => void;
-  _mapCallbacks: MapCallbacks;
   registerMapCallbacks: (cbs: MapCallbacks | null) => void;
   fireMapClick: (lngLat: { lng: number; lat: number }) => void;
   fireMapRightClick: (info: { screenX: number; screenY: number; lng: number; lat: number }) => void;
@@ -71,7 +78,6 @@ interface AppStore {
   loadingOverlays: Set<OverlayKey>;
   toggleOverlay: (key: OverlayKey) => void;
   setActiveOverlays: (updater: Set<OverlayKey> | ((prev: Set<OverlayKey>) => Set<OverlayKey>)) => void;
-  _loadingKeys: Set<OverlayKey>;
   loadActiveOverlays: () => void;
 
   // Routing
@@ -101,123 +107,128 @@ interface AppStore {
 // Store
 // ---------------------------------------------------------------------------
 
-export const useAppStore = create<AppStore>((set, get) => ({
-  // ---- Map ----
-  flyTo: null,
-  setFlyTo: (t) => set({ flyTo: t }),
-  _mapCallbacks: {},
-  registerMapCallbacks: (cbs) => set({ _mapCallbacks: cbs ?? {} }),
-  fireMapClick: (lngLat) => get()._mapCallbacks.onMapClick?.(lngLat),
-  fireMapRightClick: (info) => get()._mapCallbacks.onRightClick?.(info),
+export const useAppStore = create<AppStore>()(
+  devtools(
+    subscribeWithSelector((set, get) => ({
+      // ---- Map ----
+      flyTo: null,
+      setFlyTo: (t) => set({ flyTo: t }, undefined, "map/flyTo"),
 
-  // ---- Selection ----
-  selectedStationId: null,
-  setSelectedStationId: (id) => set({ selectedStationId: id }),
-  autoFocusName: false,
-  setAutoFocusName: (v) => set({ autoFocusName: v }),
-  contextMenu: null,
-  setContextMenu: (m) => set({ contextMenu: m }),
+      // Callbacks live outside the store — no state change, no subscriber notifications
+      registerMapCallbacks: (cbs) => { mapCallbacks = cbs ?? {}; },
+      fireMapClick: (lngLat) => mapCallbacks.onMapClick?.(lngLat),
+      fireMapRightClick: (info) => mapCallbacks.onRightClick?.(info),
 
-  // ---- Modal ----
-  modal: null,
-  setModal: (m) => set({ modal: m }),
-  closeModal: () => set({ modal: null }),
+      // ---- Selection ----
+      selectedStationId: null,
+      setSelectedStationId: (id) => set({ selectedStationId: id }, undefined, "selection/station"),
+      autoFocusName: false,
+      setAutoFocusName: (v) => set({ autoFocusName: v }),
+      contextMenu: null,
+      setContextMenu: (m) => set({ contextMenu: m }, undefined, "selection/contextMenu"),
 
-  // ---- Overlays ----
-  activeOverlays: new Set<OverlayKey>(["lrt", "bike", "docks"]),
-  overlayData: {},
-  loadingOverlays: new Set<OverlayKey>(),
-  _loadingKeys: new Set<OverlayKey>(),
+      // ---- Modal ----
+      modal: null,
+      setModal: (m) => set({ modal: m }, undefined, "modal/open"),
+      closeModal: () => set({ modal: null }, undefined, "modal/close"),
 
-  toggleOverlay: (key) => {
-    const { activeOverlays } = get();
-    const next = new Set(activeOverlays);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    set({ activeOverlays: next });
-    get().loadActiveOverlays();
-  },
+      // ---- Overlays ----
+      activeOverlays: new Set<OverlayKey>(["lrt", "bike", "docks"]),
+      overlayData: {},
+      loadingOverlays: new Set<OverlayKey>(),
 
-  setActiveOverlays: (updater) => {
-    const { activeOverlays } = get();
-    const next = typeof updater === "function" ? updater(activeOverlays) : updater;
-    set({ activeOverlays: next });
-    get().loadActiveOverlays();
-  },
-
-  loadActiveOverlays: () => {
-    const { activeOverlays, overlayData, _loadingKeys } = get();
-    for (const key of activeOverlays) {
-      if (key === "docks" || key === "accessibility") continue;
-      if (overlayData[key]) continue;
-      if (_loadingKeys.has(key)) continue;
-
-      _loadingKeys.add(key);
-      set({ loadingOverlays: new Set([...get().loadingOverlays, key]) });
-
-      getOverlay(key)
-        .then((data) => set({ overlayData: { ...get().overlayData, [key]: data } }))
-        .catch((err) => console.warn(`Overlay "${key}" failed to load`, err))
-        .finally(() => {
-          _loadingKeys.delete(key);
-          const next = new Set(get().loadingOverlays);
-          next.delete(key);
-          set({ loadingOverlays: next });
-        });
-    }
-  },
-
-  // ---- Routing ----
-  origin: null,
-  destination: null,
-  setOrigin: (p) => set({ origin: p }),
-  setDestination: (p) => set({ destination: p }),
-  routes: [],
-  routeNotices: [],
-  selectedRouteIndex: null,
-  setSelectedRouteIndex: (i) => set({ selectedRouteIndex: i }),
-  isLoadingRoutes: false,
-  departureTime: null,
-  setDepartureTime: (t) => set({ departureTime: t }),
-
-  getDirections: () => {
-    const { origin, destination, departureTime } = get();
-    if (!origin || !destination) return;
-
-    const zoom = zoomForBounds(origin, destination);
-    set({
-      flyTo: {
-        latitude: (origin.lat + destination.lat) / 2,
-        longitude: (origin.lng + destination.lng) / 2,
-        zoom, _ts: Date.now(),
+      toggleOverlay: (key) => {
+        const { activeOverlays } = get();
+        const next = new Set(activeOverlays);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        set({ activeOverlays: next }, undefined, "overlay/toggle");
+        get().loadActiveOverlays();
       },
-      isLoadingRoutes: true,
-    });
 
-    computeRoutes(
-      { lat: origin.lat, lng: origin.lng },
-      { lat: destination.lat, lng: destination.lng },
-      ["walk", "bike", "bikeshare", "transit", "transit_bike"],
-      departureTime || undefined,
-    )
-      .then(({ routes: results, notices }) => {
+      setActiveOverlays: (updater) => {
+        const { activeOverlays } = get();
+        const next = typeof updater === "function" ? updater(activeOverlays) : updater;
+        set({ activeOverlays: next }, undefined, "overlay/setActive");
+        get().loadActiveOverlays();
+      },
+
+      loadActiveOverlays: () => {
+        const { activeOverlays, overlayData } = get();
+        for (const key of activeOverlays) {
+          if (key === "docks" || key === "accessibility") continue;
+          if (overlayData[key]) continue;
+          if (loadingKeys.has(key)) continue;
+
+          loadingKeys.add(key);
+          set({ loadingOverlays: new Set([...get().loadingOverlays, key]) });
+
+          getOverlay(key)
+            .then((data) => set({ overlayData: { ...get().overlayData, [key]: data } }, undefined, `overlay/loaded:${key}`))
+            .catch((err) => console.warn(`Overlay "${key}" failed to load`, err))
+            .finally(() => {
+              loadingKeys.delete(key);
+              const next = new Set(get().loadingOverlays);
+              next.delete(key);
+              set({ loadingOverlays: next });
+            });
+        }
+      },
+
+      // ---- Routing ----
+      origin: null,
+      destination: null,
+      setOrigin: (p) => set({ origin: p }, undefined, "routing/setOrigin"),
+      setDestination: (p) => set({ destination: p }, undefined, "routing/setDestination"),
+      routes: [],
+      routeNotices: [],
+      selectedRouteIndex: null,
+      setSelectedRouteIndex: (i) => set({ selectedRouteIndex: i }, undefined, "routing/selectRoute"),
+      isLoadingRoutes: false,
+      departureTime: null,
+      setDepartureTime: (t) => set({ departureTime: t }),
+
+      getDirections: () => {
+        const { origin, destination, departureTime } = get();
+        if (!origin || !destination) return;
+
+        const zoom = zoomForBounds(origin, destination);
         set({
-          routes: results, routeNotices: notices,
-          selectedRouteIndex: results.length > 0 ? 0 : null,
-        });
-      })
-      .catch((err) => {
-        console.error("Route computation failed:", err);
-        set({ routes: [], routeNotices: [] });
-      })
-      .finally(() => set({ isLoadingRoutes: false }));
-  },
+          flyTo: {
+            latitude: (origin.lat + destination.lat) / 2,
+            longitude: (origin.lng + destination.lng) / 2,
+            zoom, _ts: Date.now(),
+          },
+          isLoadingRoutes: true,
+        }, undefined, "routing/getDirections");
 
-  clearRoutes: () => set({ routes: [], selectedRouteIndex: null }),
+        computeRoutes(
+          { lat: origin.lat, lng: origin.lng },
+          { lat: destination.lat, lng: destination.lng },
+          ["walk", "bike", "bikeshare", "transit", "transit_bike"],
+          departureTime || undefined,
+        )
+          .then(({ routes: results, notices }) => {
+            set({
+              routes: results, routeNotices: notices,
+              selectedRouteIndex: results.length > 0 ? 0 : null,
+            }, undefined, "routing/routesLoaded");
+          })
+          .catch((err) => {
+            console.error("Route computation failed:", err);
+            set({ routes: [], routeNotices: [] }, undefined, "routing/routesFailed");
+          })
+          .finally(() => set({ isLoadingRoutes: false }));
+      },
 
-  // ---- Preview ----
-  previewStations: null,
-  setPreviewStations: (s) => set({ previewStations: s }),
+      clearRoutes: () => set({ routes: [], selectedRouteIndex: null }, undefined, "routing/clear"),
 
-  // ---- Selection clear ----
-  clearSelection: () => set({ selectedStationId: null, contextMenu: null }),
-}));
+      // ---- Preview ----
+      previewStations: null,
+      setPreviewStations: (s) => set({ previewStations: s }, undefined, "preview/set"),
+
+      // ---- Selection clear ----
+      clearSelection: () => set({ selectedStationId: null, contextMenu: null }, undefined, "selection/clear"),
+    })),
+    { name: "AppStore", enabled: process.env.NODE_ENV === "development" },
+  ),
+);
