@@ -63,6 +63,7 @@ services:
       - BIKESHARE_DATABASE_URL=postgresql://bikeshare:${BIKESHARE_POSTGRES_PASSWORD:-bikeshare_dev}@postgres:5432/bikeshareyeg
     volumes:
       - ./data:/app/data
+      - ./cities:/app/cities:ro
     networks:
       - bikeshare
     depends_on:
