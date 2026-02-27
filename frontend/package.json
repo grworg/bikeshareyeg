@@ -11,7 +11,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "prebuild": "cd .. && backend/.venv/bin/python scripts/generate-frontend-city-config.py",
+    "prebuild": "test -f src/lib/cityConfig.ts || (cd .. && backend/.venv/bin/python scripts/generate-frontend-city-config.py)",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
