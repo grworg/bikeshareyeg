@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import SideNav, { MobileTabBar } from "@/components/SideNav";
 import MobileSidebar from "@/components/MobileSidebar";
+import MobileRoutingView from "@/components/MobileRoutingView";
 import ContextMenu from "@/components/ContextMenu";
 import OverlayControls from "@/components/OverlayControls";
 import AppModal from "@/components/Modal";
@@ -12,15 +13,9 @@ import { useIsMobile } from "@/lib/useMediaQuery";
 import { useAppStore } from "@/lib/appStore";
 import { useNetworkStore } from "@/lib/networkStore";
 import type { AppMode } from "@/lib/types";
+import { modeFromPathname } from "@/lib/navigation";
 
 const DeckMap = dynamic(() => import("@/components/DeckMap"), { ssr: false });
-
-function modeFromPathname(pathname: string): AppMode {
-  if (pathname.startsWith("/designer")) return "designer";
-  if (pathname.startsWith("/saved")) return "saved";
-  if (pathname.startsWith("/docs")) return "docs";
-  return "routing";
-}
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();
@@ -104,12 +99,28 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   // ---- Mobile sidebar ----
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const isLoadingRoutes = useAppStore((s) => s.isLoadingRoutes);
+
+  // Auto-expand sheet when routes arrive on mobile
+  const prevRoutesLen = useRef(routes.length);
+  useEffect(() => {
+    if (isMobile && routes.length > 0 && prevRoutesLen.current === 0) {
+      setMobileSidebarOpen(true);
+    }
+    prevRoutesLen.current = routes.length;
+  }, [isMobile, routes.length]);
 
   const handleMobileTab = useCallback(
     (m: AppMode) => {
       if (m === "docs") { router.push("/docs"); return; }
-      const targetPath = m === "routing" ? "/routing" : m === "saved" ? "/saved"
+      const targetPath = m === "routing"
+        ? (activeNetworkId ? `/routing/${activeNetworkId}` : "/routing")
+        : m === "saved" ? "/saved"
         : activeNetworkId ? `/designer/${activeNetworkId}` : "/designer";
+      if (m === "routing") {
+        router.push(targetPath);
+        return;
+      }
       if (m === mode) {
         setMobileSidebarOpen((o) => !o);
       } else {
@@ -143,6 +154,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // Wait for hydration so we know the correct layout before rendering
+  if (isMobile === undefined) {
+    return <main className="h-screen w-screen bg-[var(--color-surface)]" />;
+  }
+
   // ---- Derived ----
   const isDesigner = mode === "designer";
   const displayStations = previewStations ?? stations;
@@ -162,6 +178,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         onMapClick={useAppStore.getState().fireMapClick}
         onRightClick={isDesigner ? useAppStore.getState().fireMapRightClick : undefined}
         designerMode={isDesigner}
+        isMobile={isMobile}
         selectedStationId={selectedStationId}
         onStationClick={handleStationClick}
         onDeleteStation={useNetworkStore.getState().deleteStation}
@@ -194,19 +211,52 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // Render
   // ===========================================================================
 
+  const isDocs = mode === "docs";
+
   if (isMobile) {
+    if (isDocs) {
+      return (
+        <main className="relative h-dvh w-screen flex flex-col">
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {children}
+          </div>
+          <MobileTabBar mode={mode} onChangeMode={handleMobileTab} />
+          <AppModal modal={modal} onClose={useAppStore.getState().closeModal} />
+        </main>
+      );
+    }
+    const isRouting = mode === "routing";
     return (
-      <main className="relative h-screen w-screen flex flex-col">
-        <div className="flex-1 relative min-h-0">
-          {mapContent}
-        </div>
-        <MobileSidebar
-          open={mobileSidebarOpen}
-          onClose={() => setMobileSidebarOpen(false)}
+      <main className="relative h-dvh w-screen flex flex-col">
+        <div
+          className="flex-1 relative min-h-0 overflow-hidden"
+          onPointerDown={!isRouting && mobileSidebarOpen ? () => setMobileSidebarOpen(false) : undefined}
         >
-          {children}
-        </MobileSidebar>
+          {mapContent}
+          {isRouting && <MobileRoutingView />}
+          {!isRouting && (
+            <MobileSidebar
+              open={mobileSidebarOpen}
+              onClose={() => setMobileSidebarOpen(false)}
+            >
+              {children}
+            </MobileSidebar>
+          )}
+          {isRouting && <div className="sr-only">{children}</div>}
+        </div>
         <MobileTabBar mode={mode} onChangeMode={handleMobileTab} />
+        <AppModal modal={modal} onClose={useAppStore.getState().closeModal} />
+      </main>
+    );
+  }
+
+  if (isDocs) {
+    return (
+      <main className="relative h-screen w-screen overflow-hidden flex">
+        <SideNav />
+        <div className="flex-1 min-w-0 h-full">
+          {children}
+        </div>
         <AppModal modal={modal} onClose={useAppStore.getState().closeModal} />
       </main>
     );
@@ -221,7 +271,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <div className="relative z-10 flex h-full w-fit">
         <SideNav />
         <div
-          className="h-full shrink-0 bg-white shadow-[2px_0_8px_rgba(0,0,0,0.08)]"
+          className="h-full shrink-0 bg-[var(--color-surface)] shadow-[2px_0_8px_rgba(0,0,0,0.08)]"
           style={{ width: SIDEBAR_W }}
         >
           {children}

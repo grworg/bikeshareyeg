@@ -127,7 +127,7 @@ export default function ElevationProfile({
 
       {/* SVG chart */}
       <div
-        className="relative rounded-md overflow-hidden bg-[#f8f9fa] border border-[var(--color-border)]"
+        className="relative rounded-md overflow-hidden bg-[var(--color-surface-alt)] border border-[var(--color-border)]"
         style={{ height }}
       >
         <svg
@@ -203,7 +203,7 @@ export default function ElevationProfile({
               style={{ backgroundColor: color, opacity: 0.5, height }}
             />
             <div
-              className="absolute top-1 -translate-x-1/2 bg-white px-2 py-0.5 rounded shadow text-[10px] font-medium whitespace-nowrap"
+              className="absolute top-1 -translate-x-1/2 bg-[var(--color-surface)] px-2 py-0.5 rounded shadow text-[10px] font-medium whitespace-nowrap"
               style={{ color: "#202124" }}
             >
               {Math.round(hover.elevation)}m ·{" "}

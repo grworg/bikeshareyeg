@@ -120,9 +120,9 @@ ${p(`BikeShareYEG has three main modes, accessible from the icon rail on the lef
 <ol class="list-decimal pl-6 space-y-2 my-3">
   <li><strong>Trip Planner</strong> (pin icon) — Find multi-modal routes between any two points in Edmonton. Compare walk, bike, bike-share, transit, and combined modes.</li>
   <li><strong>Network Designer</strong> (layers icon) — Place, edit, and optimize bike-share docking stations. Tune the suitability surface, run optimization algorithms, and build your ideal network.</li>
-  <li><strong>Saved Networks</strong> (floppy disk icon) — Browse, load, rename, or delete previously saved network drafts.</li>
+  <li><strong>Saved Networks</strong> (folder icon) — Browse, load, rename, or delete previously saved network drafts.</li>
 </ol>
-${p(`The map fills the rest of the screen. You can toggle data overlays (LRT lines, bike paths, bus routes, population density) using the layer controls in the bottom-right corner.`)}
+${p(`The map fills the rest of the screen. You can toggle data overlays (LRT lines, bike paths, bus routes, motorways, trunk roads, commercial &amp; retail POIs, education, parks &amp; recreation, population density, and bike-share dock locations) using the layer controls in the bottom-right corner.`)}
       `,
     },
     {
@@ -151,7 +151,7 @@ ${img("/docs/network-designer.png", "Network Designer with suitability heatmap a
 ${p(`Switch to <strong>Network Designer</strong> mode. You'll see the suitability heatmap overlay \u2014 a hex grid showing which areas of Edmonton are best suited for bike-share stations based on seven factors: population density, commercial activity, education, parks & recreation, LRT proximity, bike infrastructure, and transit access.`)}
 ${p(`To get started quickly:`)}
 <ol class="list-decimal pl-6 space-y-2 my-3">
-  <li><strong>Seed LRT stations</strong> — Click "Seed LRT Docks" to automatically place a station at every LRT stop. This gives you a baseline network.</li>
+  <li><strong>Seed LRT stations</strong> — Click "Seed LRT" to automatically place a station at every LRT stop. This gives you a baseline network.</li>
   <li><strong>Run the optimizer</strong> — Set your desired number of stations, adjust weights if you like, and click "Generate All" to let the algorithm place stations optimally.</li>
   <li><strong>Or step through it</strong> — Click the <strong>+1</strong> button to place one station at a time, watching the suitability surface respond after each placement.</li>
   <li><strong>Apply the results</strong> — Click "Add Stations to Network" to commit generated stations to your map.</li>
@@ -165,14 +165,10 @@ ${p(`Switch back to Trip Planner any time to test routes through your network!`)
       title: "Saving & Sharing Your Network",
       content: `
 ${img("/docs/saved-networks.png", "Saved Networks panel with draft list", { width: 600, height: 380, caption: "Browse, load, and manage saved network drafts" })}
-${p(`Your network design is automatically preserved in your browser session. To explicitly save a snapshot:`)}
-<ol class="list-decimal pl-6 space-y-2 my-3">
-  <li>In Network Designer mode, click <strong>"Save Draft"</strong> in the sidebar header.</li>
-  <li>Enter a name for your design (e.g., "LRT-focused, 40 stations").</li>
-  <li>The draft is saved to your browser's localStorage along with all station positions, algorithm configuration, weights, and decay radii.</li>
-</ol>
-${p(`To reload a saved design, switch to the <strong>Saved Networks</strong> mode and click on any entry. You can also rename or delete saved drafts.`)}
-${p(`Saved networks use a <strong>versioned JSON format</strong> (currently v1), designed for future compatibility — including potential sharing via URL or file export.`)}
+${p(`Your network design is <strong>auto-saved</strong> to your browser's localStorage as you work — every station placement, edit, or configuration change is persisted automatically. There's no "Save" button because you never need one.`)}
+${p(`Each saved draft includes all station positions, algorithm configuration, weights, and decay radii in a <strong>versioned JSON format</strong> (currently v1) designed for future compatibility.`)}
+${p(`To reload a saved design, switch to the <strong>Saved Networks</strong> mode and click on any entry. You can also rename or delete saved drafts, or use the <strong>Duplicate</strong> button in the designer to create a copy of your current network under a new name.`)}
+${p(`To share a network with others, click the <strong>Share</strong> button. This publishes a read-only copy to a permanent URL that anyone can open — the link is automatically copied to your clipboard. Shared network links generate rich preview cards on social media platforms (Bluesky, X, Facebook, Discord, etc.) showing the network name, station count, and stats.`)}
       `,
     },
   ],
@@ -330,7 +326,7 @@ ${p(`When you save a draft, the current station positions plus all planner confi
       id: "seeding-from-lrt",
       title: "Seeding from LRT Stops",
       content: `
-${p(`The "Seed LRT Docks" button reads the LRT overlay data and places a station at every LRT stop that doesn't already have one nearby (within 200m). Each seeded station gets 25 docks and is named after the LRT stop.`)}
+${p(`The "Seed LRT" button reads the LRT overlay data and places a station at every LRT stop that doesn't already have one nearby (within 200m). Each seeded station gets 30 docks and 15 bikes, and is named after the LRT stop.`)}
 ${p(`This is a great starting point because LRT stations are natural bike-share anchors — they're the high-demand connection points where cyclists transfer to rapid transit. From this baseline, you can run the optimizer to fill in the rest of the network.`)}
       `,
     },
@@ -695,7 +691,7 @@ ${p(`Key architectural decisions:`)}
 <ul class="list-disc pl-6 space-y-1 my-3">
   <li>Stations are rendered as a single <strong>ScatterplotLayer</strong> (GPU) instead of individual DOM markers — critical for performance with 50+ stations.</li>
   <li>Suitability weights and decay radii are applied <strong>client-side</strong> — the backend sends raw factor scores and distances per hex, and the frontend recomputes weighted scores in a <code>useMemo</code> for instant slider feedback.</li>
-  <li>The undo/redo stack uses an immutable snapshot approach with a custom <code>useUndoRedo</code> hook.</li>
+  <li>Undo/redo uses an immutable snapshot stack built into the <a href="https://zustand.docs.pmnd.rs/" target="_blank" rel="noopener" class="text-blue-600 hover:underline">Zustand</a> state store — all application state is managed via Zustand with <code>devtools</code> and <code>subscribeWithSelector</code> middleware.</li>
 </ul>
       `,
     },
@@ -731,16 +727,22 @@ ${p(`All endpoints live under <code>/api/</code>. The backend auto-generates Ope
   <tbody class="divide-y divide-gray-100">
     <tr><td class="py-2 pr-4 font-mono text-xs">/api/routes</td><td class="py-2 pr-4">POST</td><td class="py-2">Multi-modal route computation</td></tr>
     <tr><td class="py-2 pr-4 font-mono text-xs">/api/stations</td><td class="py-2 pr-4">GET</td><td class="py-2">List all current stations</td></tr>
-    <tr><td class="py-2 pr-4 font-mono text-xs">/api/stations</td><td class="py-2 pr-4">POST</td><td class="py-2">Save/update station list</td></tr>
+    <tr><td class="py-2 pr-4 font-mono text-xs">/api/stations</td><td class="py-2 pr-4">PUT</td><td class="py-2">Save/update station list</td></tr>
     <tr><td class="py-2 pr-4 font-mono text-xs">/api/stations/reset</td><td class="py-2 pr-4">POST</td><td class="py-2">Reset to default stations</td></tr>
+    <tr><td class="py-2 pr-4 font-mono text-xs">/api/stations/clear</td><td class="py-2 pr-4">POST</td><td class="py-2">Remove all stations</td></tr>
     <tr><td class="py-2 pr-4 font-mono text-xs">/api/geocode</td><td class="py-2 pr-4">GET</td><td class="py-2">Geocode a place name to coordinates</td></tr>
     <tr><td class="py-2 pr-4 font-mono text-xs">/api/geocode/reverse</td><td class="py-2 pr-4">GET</td><td class="py-2">Reverse geocode coordinates to address</td></tr>
-    <tr><td class="py-2 pr-4 font-mono text-xs">/api/planner/hex-grid</td><td class="py-2 pr-4">GET</td><td class="py-2">Get suitability hex grid (GeoJSON)</td></tr>
+    <tr><td class="py-2 pr-4 font-mono text-xs">/api/planner/hexgrid</td><td class="py-2 pr-4">GET</td><td class="py-2">Get suitability hex grid (GeoJSON)</td></tr>
     <tr><td class="py-2 pr-4 font-mono text-xs">/api/planner/factors</td><td class="py-2 pr-4">GET</td><td class="py-2">List available suitability factors</td></tr>
     <tr><td class="py-2 pr-4 font-mono text-xs">/api/planner/optimize</td><td class="py-2 pr-4">POST</td><td class="py-2">Run full network optimization</td></tr>
     <tr><td class="py-2 pr-4 font-mono text-xs">/api/planner/step</td><td class="py-2 pr-4">POST</td><td class="py-2">Place a single optimal station (greedy step)</td></tr>
-    <tr><td class="py-2 pr-4 font-mono text-xs">/api/overlays/{layer}</td><td class="py-2 pr-4">GET</td><td class="py-2">GeoJSON overlay (lrt, bike, bus, population)</td></tr>
-    <tr><td class="py-2 pr-4 font-mono text-xs">/api/elevation</td><td class="py-2 pr-4">POST</td><td class="py-2">Elevation profile for a polyline</td></tr>
+    <tr><td class="py-2 pr-4 font-mono text-xs">/api/planner/hex-path</td><td class="py-2 pr-4">GET</td><td class="py-2">Dijkstra shortest path between hex cells</td></tr>
+    <tr><td class="py-2 pr-4 font-mono text-xs">/api/overlays/{layer}</td><td class="py-2 pr-4">GET</td><td class="py-2">GeoJSON overlay (lrt, bike, bus, motorway, trunk, commercial, education, recreation, population)</td></tr>
+    <tr><td class="py-2 pr-4 font-mono text-xs">/api/elevation/profile</td><td class="py-2 pr-4">POST</td><td class="py-2">Elevation profile for a polyline</td></tr>
+    <tr><td class="py-2 pr-4 font-mono text-xs">/api/networks</td><td class="py-2 pr-4">POST</td><td class="py-2">Share (publish) a network</td></tr>
+    <tr><td class="py-2 pr-4 font-mono text-xs">/api/networks/{id}</td><td class="py-2 pr-4">GET</td><td class="py-2">Retrieve a shared network</td></tr>
+    <tr><td class="py-2 pr-4 font-mono text-xs">/api/networks/{id}</td><td class="py-2 pr-4">PUT</td><td class="py-2">Update a shared network (owner only)</td></tr>
+    <tr><td class="py-2 pr-4 font-mono text-xs">/api/networks/{id}</td><td class="py-2 pr-4">DELETE</td><td class="py-2">Delete a shared network (owner only)</td></tr>
   </tbody>
 </table>
 </div>
@@ -786,8 +788,8 @@ ${p(`The next major feature: simulate thousands of trips through your network ov
 <h4 class="font-semibold text-base mt-4 mb-2">Real-Time Data Integration</h4>
 ${p(`Connect to live transit feeds (GTFS-RT) for real-time bus/LRT positions and arrival predictions. If Edmonton launches a bike-share system, integrate its live station availability data.`)}
 
-<h4 class="font-semibold text-base mt-4 mb-2">Sharing & Collaboration</h4>
-${p(`Export network designs as shareable URLs or files. Enable collaborative design sessions where multiple people can work on the same network. Publish designs to a public gallery for community voting and discussion.`)}
+<h4 class="font-semibold text-base mt-4 mb-2">Collaborative Design</h4>
+${p(`Shareable URLs are already live — you can publish any network as a read-only link with social media preview cards. Next steps include collaborative design sessions where multiple people can work on the same network simultaneously, and a public gallery for community voting and discussion.`)}
 
 <h4 class="font-semibold text-base mt-4 mb-2">Additional Suitability Factors</h4>
 ${p(`The suitability engine now includes seven factors (population, commercial, education, recreation, LRT, bike infra, transit) with density-based scoring for POI factors. Future additions include employment density (via Edmonton business licences or StatsCan business counts), land use zoning, topography, and visitation-weighted POI scoring.`)}

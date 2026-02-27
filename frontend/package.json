@@ -11,6 +11,7 @@
   },
   "scripts": {
     "dev": "next dev",
+    "prebuild": "cd .. && backend/.venv/bin/python scripts/generate-frontend-city-config.py",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -22,12 +23,14 @@
     "@deck.gl/layers": "^9.1",
     "@deck.gl/react": "^9.1",
     "@turf/turf": "^7.2",
+    "lucide-react": "^0.575.0",
     "maplibre-gl": "^4.7",
     "next": "^15.1",
     "react": "^19.0",
     "react-dom": "^19.0",
     "react-map-gl": "^8.1.0",
     "swr": "^2.3",
+    "vaul": "^1.1.2",
     "zustand": "^5.0.11"
   },
   "devDependencies": {

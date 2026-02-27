@@ -10,9 +10,11 @@
  */
 
 import type { SavedNetwork } from "@/lib/types";
+import { cityConfig } from "@/lib/cityConfig";
 
-const STORAGE_KEY = "bikeshareyeg_saved_networks";
-const OWNER_SECRETS_KEY = "bikeshareyeg_owner_secrets";
+const _prefix = `bikeshare_${cityConfig.shortCode.toLowerCase()}`;
+const STORAGE_KEY = `${_prefix}_saved_networks`;
+const OWNER_SECRETS_KEY = `${_prefix}_owner_secrets`;
 
 // ---------------------------------------------------------------------------
 // Read / write — saved networks
@@ -40,19 +42,29 @@ export function getSavedNetwork(id: string): SavedNetwork | null {
 
 export function saveNetwork(draft: SavedNetwork): void {
   const existing = listSavedNetworks();
-  // Upsert by id
   const idx = existing.findIndex((n) => n.id === draft.id);
   if (idx >= 0) {
     existing[idx] = draft;
   } else {
     existing.unshift(draft);
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+  } catch {
+    console.warn("localStorage quota exceeded — pruning oldest networks");
+    while (existing.length > 1) {
+      existing.pop();
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+        return;
+      } catch { /* keep pruning */ }
+    }
+  }
 }
 
 export function deleteSavedNetwork(id: string): void {
   const existing = listSavedNetworks().filter((n) => n.id !== id);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(existing)); } catch { /* quota */ }
 }
 
 export function renameSavedNetwork(id: string, name: string): void {
@@ -60,7 +72,7 @@ export function renameSavedNetwork(id: string, name: string): void {
   const entry = all.find((n) => n.id === id);
   if (entry) {
     entry.name = name;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(all)); } catch { /* quota */ }
   }
 }
 
@@ -79,7 +91,7 @@ function _readSecrets(): Record<string, string> {
 }
 
 function _writeSecrets(secrets: Record<string, string>): void {
-  localStorage.setItem(OWNER_SECRETS_KEY, JSON.stringify(secrets));
+  try { localStorage.setItem(OWNER_SECRETS_KEY, JSON.stringify(secrets)); } catch { /* quota */ }
 }
 
 /** Generate a 256-bit cryptographically random hex secret. */

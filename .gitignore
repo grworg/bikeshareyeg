@@ -47,6 +47,9 @@ data/overlays/
 # Precomputed hex grid (regenerate with scripts/precompute-hexgrid.py)
 data/hexgrid.geojson
 
+# Seed station data (no longer used — sessions start empty)
+data/stations.json
+
 # OSMnx road graph cache
 data/cache/*.graphml
 data/cache/*.pkl

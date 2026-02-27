@@ -17,7 +17,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 OTP_DATA="$PROJECT_DIR/data/otp"
 OTP_IMAGE="docker.io/opentripplanner/opentripplanner:2.6.0"
-CONTAINER_NAME="bikeshareyeg-otp"
+
+# ── Read city config via Python helper ──
+_py_helper() {
+  "$PROJECT_DIR/backend/.venv/bin/python" -c "
+import sys; sys.path.insert(0, '$PROJECT_DIR/backend')
+from src.city_loader import load_city_config
+c = load_city_config()
+print(c.short_code.lower())
+print(c.transit.osm_extract_url)
+print(c.transit.osm_filename)
+print(c.transit.gtfs_path)
+print(c.app_name)
+"
+}
+IFS=$'\n' read -r -d '' CITY_CODE OSM_URL OSM_FILENAME GTFS_REL_PATH APP_NAME < <(_py_helper && printf '\0')
+CONTAINER_NAME="${CITY_CODE}-otp"
 
 # ── Preflight checks ──
 if ! command -v docker &>/dev/null; then
@@ -25,16 +40,38 @@ if ! command -v docker &>/dev/null; then
   exit 1
 fi
 
-if [[ ! -f "$OTP_DATA/alberta.osm.pbf" ]]; then
-  echo "📥 Downloading Alberta OSM extract from Geofabrik (~320 MB)..."
-  curl -L -o "$OTP_DATA/alberta.osm.pbf" \
-    "https://download.geofabrik.de/north-america/canada/alberta-latest.osm.pbf"
+if [[ ! -f "$OTP_DATA/$OSM_FILENAME" ]]; then
+  echo "📥 Downloading OSM extract from $OSM_URL ..."
+  curl -L -o "$OTP_DATA/$OSM_FILENAME" "$OSM_URL"
 fi
 
 if [[ ! -f "$OTP_DATA/gtfs.zip" ]]; then
   echo "📥 Copying GTFS data..."
-  cp "$PROJECT_DIR/data/gtfs/gtfs.zip" "$OTP_DATA/gtfs.zip"
+  cp "$PROJECT_DIR/$GTFS_REL_PATH" "$OTP_DATA/gtfs.zip"
 fi
+
+# Generate build-config.json from city config
+cat > "$OTP_DATA/build-config.json" <<BCONF
+{
+  "osm": [
+    {
+      "source": "$OSM_FILENAME"
+    }
+  ],
+  "transitFeeds": [
+    {
+      "type": "gtfs",
+      "source": "gtfs.zip"
+    }
+  ],
+  "areaVisibility": false,
+  "platformEntriesLinking": false,
+  "parentStopLinking": true,
+  "streets": {
+    "limitWalkNoThru": false
+  }
+}
+BCONF
 
 echo "📂 OTP data directory: $OTP_DATA"
 ls -lh "$OTP_DATA"
@@ -43,7 +80,7 @@ ls -lh "$OTP_DATA"
 if [[ "${1:-}" != "--serve" ]] && [[ ! -f "$OTP_DATA/graph.obj" ]]; then
   echo ""
   echo "🔨 Building OTP routing graph (this takes 10-20 minutes)..."
-  echo "   OSM: alberta.osm.pbf"
+  echo "   OSM: $OSM_FILENAME"
   echo "   GTFS: gtfs.zip"
   echo ""
 

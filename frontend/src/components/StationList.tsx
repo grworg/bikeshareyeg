@@ -1,5 +1,6 @@
 "use client";
 
+import { MapPinPlus } from "lucide-react";
 import type { BikeStation } from "@/lib/types";
 
 interface StationListProps {
@@ -17,11 +18,9 @@ export default function StationList({
     return (
       <div className="flex-1 flex items-center justify-center px-5 py-12 text-center">
         <div>
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#dadce0" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-3">
-            <circle cx="12" cy="12" r="10" />
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-          </svg>
+          <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-[var(--color-surface-hover)] flex items-center justify-center">
+            <MapPinPlus size={24} className="text-[var(--color-border)]" />
+          </div>
           <p className="text-[13px] text-[var(--color-secondary)]">
             No stations yet
           </p>
@@ -44,7 +43,7 @@ export default function StationList({
             onClick={() => onSelectStation(s.id)}
             className={`w-full text-left px-5 py-2.5 flex items-center gap-3 border-b border-[var(--color-border)] last:border-b-0 transition-colors ${
               s.id === selectedStationId
-                ? "bg-[#e8f0fe]"
+                ? "bg-[var(--color-active-bg)]"
                 : "hover:bg-[var(--color-surface-hover)]"
             }`}
           >

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { FolderOpen, Share2, Pencil, Trash2, Link2, Loader2 } from "lucide-react";
 import type { SavedNetwork } from "@/lib/types";
 import {
   listSavedNetworks,
@@ -13,6 +14,7 @@ import {
   getOwnerSecret,
 } from "@/lib/savedNetworks";
 import { shareNetwork } from "@/lib/api";
+import { useAppStore } from "@/lib/appStore";
 
 interface SavedNetworksListProps {
   onLoad: (network: SavedNetwork) => void;
@@ -25,10 +27,8 @@ export default function SavedNetworksList({ onLoad, activeNetworkId }: SavedNetw
   const [editName, setEditName] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  // Sharing state
   const [sharingId, setSharingId] = useState<string | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const refresh = useCallback(() => setNetworks(listSavedNetworks()), []);
   useEffect(refresh, [refresh]);
@@ -48,22 +48,33 @@ export default function SavedNetworksList({ onLoad, activeNetworkId }: SavedNetw
   };
 
   const handleShare = async (network: SavedNetwork) => {
+    if (network.shareId) {
+      const url = `${window.location.origin}/routing/${network.shareId}`;
+      useAppStore.getState().setModal({
+        type: "share", title: "Share Network", url,
+        message: "Anyone with this link can view this network.",
+      });
+      return;
+    }
+
     setSharingId(network.id);
     setShareError(null);
     try {
       const secret = generateOwnerSecret();
       const hash = await hashOwnerSecret(secret);
       const result = await shareNetwork(hash, network);
-
       storeOwnerSecret(result.id, secret);
-
       const updated: SavedNetwork = {
-        ...network,
-        shareId: result.id,
-        sharedAt: new Date().toISOString(),
+        ...network, shareId: result.id, sharedAt: new Date().toISOString(),
       };
       saveNetwork(updated);
       refresh();
+
+      const url = `${window.location.origin}/routing/${result.id}`;
+      useAppStore.getState().setModal({
+        type: "share", title: "Network Shared!", url,
+        message: "Anyone with this link can view this network.",
+      });
     } catch (err) {
       setShareError(err instanceof Error ? err.message : "Failed to share");
     } finally {
@@ -71,28 +82,12 @@ export default function SavedNetworksList({ onLoad, activeNetworkId }: SavedNetw
     }
   };
 
-  const handleCopyLink = async (shareId: string) => {
-    const url = `${window.location.origin}/network/${shareId}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopiedId(shareId);
-      setTimeout(() => setCopiedId(null), 2000);
-    } catch {
-      // Fallback for non-HTTPS or denied clipboard
-      prompt("Copy this link:", url);
-    }
-  };
-
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {networks.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
-          <div className="w-12 h-12 rounded-full bg-[#f1f3f4] flex items-center justify-center mb-3">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
-              <polyline points="17 21 17 13 7 13 7 21" />
-              <polyline points="7 3 7 8 15 8" />
-            </svg>
+          <div className="w-12 h-12 rounded-full bg-[var(--color-surface-hover)] flex items-center justify-center mb-3">
+            <FolderOpen size={24} className="text-[var(--color-secondary)]" />
           </div>
           <p className="text-[13px] font-medium text-[var(--color-fg)] mb-1">
             No saved networks
@@ -110,7 +105,7 @@ export default function SavedNetworksList({ onLoad, activeNetworkId }: SavedNetw
             return (
             <div
               key={n.id}
-              className={`px-5 py-3 border-b border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer ${isActive ? "bg-[#e8f0fe]/40" : ""}`}
+              className={`px-5 py-3 border-b border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer ${isActive ? "bg-[var(--color-active-bg)]/40" : ""}`}
               onClick={() => { if (editingId !== n.id) onLoad(n); }}
             >
               {/* Name row */}
@@ -133,7 +128,7 @@ export default function SavedNetworksList({ onLoad, activeNetworkId }: SavedNetw
                     />
                     <button
                       type="submit"
-                      className="text-[11px] text-[var(--color-blue)] font-medium px-2 py-1 hover:bg-[#e8f0fe] rounded"
+                      className="text-[11px] text-[var(--color-blue)] font-medium px-2 py-1 hover:bg-[var(--color-active-bg)] rounded"
                     >
                       Save
                     </button>
@@ -145,12 +140,10 @@ export default function SavedNetworksList({ onLoad, activeNetworkId }: SavedNetw
                     </p>
                     {isShared && (
                       <span
-                        className="inline-flex items-center gap-0.5 text-[10px] font-medium text-[#1a73e8] bg-[#e8f0fe] px-1.5 py-0.5 rounded-full"
+                        className="inline-flex items-center gap-0.5 text-[10px] font-medium text-[var(--color-blue)] bg-[var(--color-active-bg)] px-1.5 py-0.5 rounded-full"
                         title={`Shared ${n.sharedAt ? new Date(n.sharedAt).toLocaleDateString() : ""}`}
                       >
-                        <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-                          <path d="M13.5 1a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM11 2.5a2.5 2.5 0 11.603 1.628l-6.718 3.12a2.499 2.499 0 010 1.504l6.718 3.12a2.5 2.5 0 11-.488.876l-6.718-3.12a2.5 2.5 0 110-3.256l6.718-3.12A2.5 2.5 0 0111 2.5zm-8.5 4a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm11 5.5a1.5 1.5 0 100 3 1.5 1.5 0 000-3z"/>
-                        </svg>
+                        <Share2 size={10} />
                         Shared
                       </span>
                     )}
@@ -173,37 +166,25 @@ export default function SavedNetworksList({ onLoad, activeNetworkId }: SavedNetw
                 </span>
                 <div className="flex-1" />
                 {/* Actions — stop propagation so clicks don't trigger onLoad */}
-                {isShared ? (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleCopyLink(n.shareId!); }}
-                    className={`text-[11px] font-medium transition-colors ${
-                      copiedId === n.shareId
-                        ? "text-[#34a853]"
-                        : "text-[#1a73e8] hover:text-[#174ea6]"
-                    }`}
-                    title="Copy shareable link"
-                  >
-                    {copiedId === n.shareId ? "Copied!" : "Copy link"}
-                  </button>
-                ) : (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleShare(n); }}
-                    disabled={sharingId === n.id}
-                    className="text-[11px] text-[#1a73e8] hover:text-[#174ea6] font-medium transition-colors disabled:opacity-50"
-                    title="Publish and get a shareable link"
-                  >
-                    {sharingId === n.id ? "Sharing..." : "Share"}
-                  </button>
-                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleShare(n); }}
+                  disabled={sharingId === n.id}
+                  className="text-[11px] text-[var(--color-blue)] hover:text-[var(--color-blue-hover)] font-medium transition-colors disabled:opacity-50 flex items-center gap-1"
+                  title={isShared ? "Copy shareable link" : "Publish and get a shareable link"}
+                >
+                  {sharingId === n.id ? <Loader2 size={11} className="animate-spin" /> : isShared ? <Link2 size={11} /> : <Share2 size={11} />}
+                  {sharingId === n.id ? "Sharing\u2026" : "Share"}
+                </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); setEditingId(n.id); setEditName(n.name); }}
-                  className="text-[11px] text-[var(--color-secondary)] hover:text-[var(--color-fg)] transition-colors"
+                  className="text-[11px] text-[var(--color-secondary)] hover:text-[var(--color-fg)] transition-colors flex items-center gap-1"
                   title="Rename"
                 >
+                  <Pencil size={11} />
                   Rename
                 </button>
                 {confirmDeleteId === n.id ? (
-                  <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                  <span className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={() => handleDelete(n.id)}
                       className="text-[11px] text-red-600 font-medium hover:text-red-700"
@@ -220,9 +201,10 @@ export default function SavedNetworksList({ onLoad, activeNetworkId }: SavedNetw
                 ) : (
                   <button
                     onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(n.id); }}
-                    className="text-[11px] text-[var(--color-secondary)] hover:text-red-600 transition-colors"
+                    className="text-[11px] text-[var(--color-secondary)] hover:text-red-600 transition-colors flex items-center gap-1"
                     title="Delete"
                   >
+                    <Trash2 size={11} />
                     Delete
                   </button>
                 )}

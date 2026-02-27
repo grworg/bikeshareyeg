@@ -1,0 +1,92 @@
+# ─────────────────────────────────────────────────────────────
+# Edmonton, Alberta — City Configuration
+#
+# This file defines every city-specific value used by the
+# BikeShareYEG backend, frontend, and data pipelines.
+#
+# To adapt the project for a different city:
+#   1. Copy this file to cities/yourcity.yaml
+#   2. Edit all values below
+#   3. Set BIKESHARE_CITY=yourcity in your .env
+#   4. See PORTING.md for full instructions
+# ─────────────────────────────────────────────────────────────
+
+# ── Identity ────────────────────────────────────────────────
+name: "Edmonton"
+short_code: "YEG"
+region: "Alberta, Canada"
+app_name: "BikeShareYEG"
+tagline: "Edmonton Bike-Share Planner"
+description: "Design, simulate, and visualize bike-sharing networks for Edmonton, AB"
+site_url: "https://bikeshare.grassrootswork.org"
+
+# ── Geography ───────────────────────────────────────────────
+# Center point for initial map view
+center:
+  lat: 53.5461
+  lng: -113.4937
+
+# Bounding box that defines the hex grid, Overpass queries,
+# and overall coverage area
+bbox:
+  south: 53.35
+  west: -113.75
+  north: 53.70
+  east: -113.25
+
+initial_zoom: 11.5
+
+# UTM zone EPSG code for projected area calculations
+utm_epsg: 32612
+
+# Latitude used for flat-earth distance approximation.
+# cos(reference_latitude) corrects longitude-to-metres.
+reference_latitude: 53.5
+
+# ── Transit ─────────────────────────────────────────────────
+transit:
+  # Label shown in the UI for the primary rapid transit mode
+  # Examples: "LRT", "Light Rail", "MAX", "BRT", "Subway", "Metro"
+  rapid_transit_label: "LRT"
+
+  # GTFS route_type values treated as rapid transit
+  # 0 = Tram/Light Rail, 1 = Subway/Metro, 2 = Rail, 3 = Bus
+  # See: https://gtfs.org/schedule/reference/#routestxt
+  rapid_transit_route_types: [0]
+
+  # Default color for rapid transit if GTFS doesn't specify one
+  rapid_transit_color: "#7b1fa2"
+
+  # Path to GTFS feed (relative to project root)
+  gtfs_path: "data/gtfs/gtfs.zip"
+
+  # OSM extract for OTP graph building
+  osm_extract_url: "https://download.geofabrik.de/north-america/canada/alberta-latest.osm.pbf"
+  osm_filename: "alberta.osm.pbf"
+
+# ── Population Data ─────────────────────────────────────────
+population:
+  # Provider determines how population_density.geojson is generated.
+  #   "statscan"   — Canadian cities (StatsCan 2021 Census)
+  #   "us_census"  — US cities (ACS 5-year + TIGER/Line)
+  #   "geojson"    — Pre-supplied file (no generation needed)
+  provider: "statscan"
+
+  # StatsCan CMA (Census Metropolitan Area) code
+  # Edmonton = 835, Winnipeg = 602, Calgary = 825, Vancouver = 933
+  statscan_cma_code: "835"
+
+  # For US cities, uncomment and set FIPS county codes:
+  # fips_county_codes: ["41051"]  # e.g. Multnomah County (Portland)
+
+# ── Suitability Factor Labels ───────────────────────────────
+# Override the default label for the rapid-transit suitability
+# factor. Keeps the internal key as "lrt" for compatibility.
+factor_labels:
+  lrt: "LRT"
+  bike_infra: "Bike Infra"
+  transit: "Transit"
+  commercial: "Commercial"
+  education: "Education"
+  recreation: "Recreation"
+  population: "Population"

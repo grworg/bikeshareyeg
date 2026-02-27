@@ -15,11 +15,15 @@ import httpx
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from src.config import settings
+
 router = APIRouter(prefix="/api/elevation", tags=["elevation"])
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/elevation"
 SAMPLE_INTERVAL_M = 50  # metres between elevation samples
 MAX_POINTS_PER_BATCH = 100  # Open-Meteo limit per request
+
+_open_meteo_reachable: bool | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -126,17 +130,17 @@ async def query_elevations(
     Query elevations for a list of (lat, lng) points.
     Returns a list of elevation values in metres.
     """
-    if not points:
+    global _open_meteo_reachable
+    if not points or _open_meteo_reachable is False:
         return []
 
     own_client = client is None
     if own_client:
-        client = httpx.AsyncClient(timeout=15)
+        client = httpx.AsyncClient(timeout=httpx.Timeout(connect=3.0, read=12.0, write=5.0, pool=5.0))
 
     try:
         elevations: list[float] = []
 
-        # Batch in groups
         for start in range(0, len(points), MAX_POINTS_PER_BATCH):
             batch = points[start : start + MAX_POINTS_PER_BATCH]
             lats = ",".join(f"{p[0]:.6f}" for p in batch)
@@ -145,18 +149,22 @@ async def query_elevations(
             resp = await client.get(
                 OPEN_METEO_URL,
                 params={"latitude": lats, "longitude": lngs},
-                headers={"User-Agent": "BikeShareYEG/0.1"},
+                headers={"User-Agent": f"{settings.app_name}/0.2"},
             )
             resp.raise_for_status()
+            _open_meteo_reachable = True
             data = resp.json()
 
             batch_elevations = data.get("elevation", [])
-            # Normalise: sometimes a single value is returned as a number
             if isinstance(batch_elevations, (int, float)):
                 batch_elevations = [batch_elevations]
             elevations.extend(batch_elevations)
 
         return elevations
+    except (httpx.ConnectTimeout, httpx.ConnectError, OSError):
+        _open_meteo_reachable = False
+        print("[elevation] Open-Meteo unreachable — elevation profiles disabled for this session")
+        return []
     finally:
         if own_client:
             await client.aclose()

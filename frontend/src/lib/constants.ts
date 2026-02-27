@@ -1,12 +1,17 @@
-/** Edmonton city center coordinates */
-export const EDMONTON_CENTER = {
-  latitude: 53.5461,
-  longitude: -113.4937,
+import type { ReactNode } from "react";
+import { Footprints, Bike, Bus, TrainFront } from "lucide-react";
+import { createElement } from "react";
+import { cityConfig } from "@/lib/cityConfig";
+
+/** City center coordinates (from city config) */
+export const CITY_CENTER = {
+  latitude: cityConfig.center.lat,
+  longitude: cityConfig.center.lng,
 };
 
 export const INITIAL_VIEW_STATE = {
-  ...EDMONTON_CENTER,
-  zoom: 11.5,
+  ...CITY_CENTER,
+  zoom: cityConfig.initialZoom,
   pitch: 0,
   bearing: 0,
 };
@@ -28,23 +33,22 @@ export type MapStyleKey = keyof typeof MAP_STYLES;
 // ---------------------------------------------------------------------------
 
 export const COLORS = {
-  // Route leg colors  [r, g, b]
-  legWalk: [100, 100, 100] as [number, number, number],       // grey
-  legBike: [52, 168, 83] as [number, number, number],         // green
-  legBikeShare: [26, 115, 232] as [number, number, number],   // blue
-  legLRT: [123, 31, 162] as [number, number, number],         // purple
-  legBus: [11, 128, 67] as [number, number, number],          // dark green
-  legWait: [180, 180, 180] as [number, number, number],       // light grey
+  legWalk: [100, 100, 100] as [number, number, number],
+  legBike: [52, 168, 83] as [number, number, number],
+  legBikeShare: [26, 115, 232] as [number, number, number],
+  legLRT: [123, 31, 162] as [number, number, number],
+  legBus: [11, 128, 67] as [number, number, number],
+  legWait: [180, 180, 180] as [number, number, number],
 };
 
 /** Route mode display config */
 export const MODE_CONFIG: Record<
   string,
-  { label: string; icon: string; color: string }
+  { label: string; icon: ReactNode; color: string }
 > = {
-  walk: { label: "Walk", icon: "🚶", color: "#646464" },
-  bike: { label: "Bike", icon: "🚲", color: "#34a853" },
-  bikeshare: { label: "Bike Share", icon: "🚲", color: "#1a73e8" },
-  transit: { label: "Transit", icon: "🚍", color: "#0b8043" },
-  transit_bike: { label: "Transit + Bike Share", icon: "🚍🚲", color: "#0b8043" },
+  walk: { label: "Walk", icon: createElement(Footprints, { size: 16 }), color: "#646464" },
+  bike: { label: "Bike", icon: createElement(Bike, { size: 16 }), color: "#34a853" },
+  bikeshare: { label: "Bike Share", icon: createElement(Bike, { size: 16 }), color: "#1a73e8" },
+  transit: { label: "Transit", icon: createElement(Bus, { size: 16 }), color: "#0b8043" },
+  transit_bike: { label: "Transit + Bike Share", icon: createElement(TrainFront, { size: 14, className: "inline mr-0.5" }), color: "#0b8043" },
 };

@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
 """
-Precompute the H3 suitability hex grid for BikeShareYEG.
+Precompute the H3 suitability hex grid.
 
-This script generates the hex grid offline with all factor scores,
-raw distances, and raw POI counts.  The result is written to
-``data/hexgrid.geojson`` and rsynced to production alongside other
-data artefacts.  The API server loads this file on startup (read-only).
+Generates the hex grid offline with all factor scores, raw distances,
+and raw POI counts.  The result is written to ``data/hexgrid.geojson``
+and rsynced to production alongside other data artefacts.  The API
+server loads this file on startup (read-only).
 
-Key improvements over the old lazy-compute approach:
-  - Road-network feasibility mask (river / rail / highway hexes excluded)
-  - Point-in-polygon population scoring (correct DA assignment)
-  - Network-distance scoring for proximity factors (Phase 2)
+City configuration is read from ``cities/<BIKESHARE_CITY>.yaml``
+(default: edmonton).
 
 Usage:
     python scripts/precompute-hexgrid.py                # full build
-    python scripts/precompute-hexgrid.py --skip-network  # Euclidean only (fast, Phase 1)
+    python scripts/precompute-hexgrid.py --skip-network  # Euclidean only (fast)
 
 Requires:
     - data/overlays/population_density.geojson  (from scripts/process-census-data.py)
@@ -34,8 +32,14 @@ from typing import Any
 import h3
 import numpy as np
 
+# Allow importing from backend/
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+from src.city_loader import load_city_config  # noqa: E402
+
+_city = load_city_config()
+
 # ---------------------------------------------------------------------------
-# Paths
+# Paths — derived from city config
 # ---------------------------------------------------------------------------
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -44,13 +48,11 @@ OVERPASS_CACHE_DIR = PROJECT_ROOT / "data" / "overpass_cache"
 CACHE_DIR = PROJECT_ROOT / "data" / "cache"
 OUTPUT_FILE = PROJECT_ROOT / "data" / "hexgrid.geojson"
 
-# Edmonton bounding box (south, west, north, east)
-BBOX = (53.35, -113.75, 53.70, -113.25)
-BBOX_STR = f"{BBOX[0]},{BBOX[1]},{BBOX[2]},{BBOX[3]}"
+BBOX = _city.bbox.as_tuple
+BBOX_STR = _city.bbox.overpass_str
 
-# Approximate metres-per-degree at Edmonton's latitude (~53.5 N)
-LAT_M = 111_320.0
-LNG_M = 111_320.0 * math.cos(math.radians(53.5))
+LAT_M = _city.lat_m
+LNG_M = _city.lng_m
 
 H3_RESOLUTION = 9
 
@@ -79,7 +81,7 @@ def overpass_query_cached(query: str, max_retries: int = 3) -> dict:
             resp = httpx.post(
                 OVERPASS_URL,
                 data={"data": query.strip()},
-                headers={"User-Agent": "BikeShareYEG/0.2"},
+                headers={"User-Agent": f"{_city.app_name}/0.2"},
                 timeout=180,
             )
             resp.raise_for_status()
@@ -213,7 +215,7 @@ def density_score(counts: np.ndarray, scale: float) -> np.ndarray:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def generate_hex_ids() -> list[str]:
-    """Generate sorted H3 hex IDs covering Edmonton's bounding box."""
+    """Generate sorted H3 hex IDs covering the city's bounding box."""
     outer = [
         (BBOX[0], BBOX[1]),
         (BBOX[0], BBOX[3]),
@@ -402,8 +404,8 @@ def compute_population_scores(
 PROXIMITY_FACTORS = [
     {
         "key": "lrt",
-        "name": "LRT Station Proximity",
-        "description": "Distance to nearest LRT station (network-aware)",
+        "name": f"{_city.transit.rapid_transit_label} Station Proximity",
+        "description": f"Distance to nearest {_city.transit.rapid_transit_label} station (network-aware)",
         "max_dist_m": 2000.0,
         "extract": "points",
         "query": f"""
@@ -587,7 +589,7 @@ def compute_density_factors(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def build_road_graph() -> Any:
-    """Build or load a cached OSMnx road graph for Edmonton.
+    """Build or load a cached OSMnx road graph for the city.
 
     Returns a NetworkX MultiDiGraph suitable for shortest-path queries.
     The graph is cached to disk as a GraphML file.
@@ -596,7 +598,7 @@ def build_road_graph() -> Any:
     import osmnx as ox
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    cache_path = CACHE_DIR / "edmonton_road_graph.graphml"
+    cache_path = CACHE_DIR / f"{_city.short_code.lower()}_road_graph.graphml"
 
     if cache_path.exists():
         print(f"\n[Graph] Loading cached road graph from {cache_path.name} ...")
@@ -620,8 +622,8 @@ def build_road_graph() -> Any:
         G = ox.distance.add_edge_lengths(G)
 
     # Remove edges unsuitable for cycling: motorways, trunk roads,
-    # and anything tagged >= 80 km/h.  In Edmonton it's legal to bike
-    # on most roads, but nobody is cycling on Whitemud or Henday.
+    # and anything tagged >= 80 km/h.  High-speed freeways are
+    # excluded regardless of local cycling legality.
     EXCLUDE_HIGHWAY = {"motorway", "motorway_link", "trunk", "trunk_link"}
     MAX_SPEED_KMH = 80
     edges_to_remove = []
@@ -663,7 +665,7 @@ def build_road_graph() -> Any:
         G_min.add_node(n, x=d["x"], y=d["y"])
     for u, v, k, d in G.edges(keys=True, data=True):
         G_min.add_edge(u, v, key=k, length=d.get("length", 0))
-    pkl_path = CACHE_DIR / "edmonton_road_graph_minimal.pkl"
+    pkl_path = CACHE_DIR / f"{_city.short_code.lower()}_road_graph_minimal.pkl"
     with open(pkl_path, "wb") as f:
         pickle.dump(G_min, f, protocol=pickle.HIGHEST_PROTOCOL)
     pkl_mb = pkl_path.stat().st_size / 1_048_576
@@ -927,7 +929,7 @@ def build_hexgrid(
 def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Precompute BikeShareYEG hex grid")
+    parser = argparse.ArgumentParser(description=f"Precompute {_city.app_name} hex grid")
     parser.add_argument(
         "--skip-network", action="store_true",
         help="Skip network-distance computation (Euclidean only, faster)",
@@ -936,7 +938,7 @@ def main() -> None:
 
     t_start = time.time()
     print("=" * 60)
-    print("BikeShareYEG — Hex Grid Precomputation")
+    print(f"{_city.app_name} — Hex Grid Precomputation")
     print("=" * 60)
 
     # 1. Generate hex grid

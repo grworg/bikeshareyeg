@@ -19,12 +19,12 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
+from src.config import city
 from src.optimization.planner import _overpass_query_cached
 
 router = APIRouter(prefix="/api/overlays", tags=["overlays"])
 
-# Edmonton bounding box (south, west, north, east)
-BBOX = "53.35,-113.75,53.70,-113.25"
+BBOX = city.bbox.overpass_str
 
 # GeoJSON results are cached in-memory after first conversion
 _geojson_cache: dict[str, dict] = {}
@@ -238,7 +238,7 @@ def _get_overlay(name: str) -> dict:
 
 @router.get("/lrt")
 def overlay_lrt():
-    """LRT / subway lines and stations in Edmonton."""
+    """Rapid transit lines and stations."""
     return _get_overlay("lrt")
 
 
@@ -250,7 +250,7 @@ def overlay_bike():
 
 @router.get("/bus")
 def overlay_bus():
-    """Bus route way segments (deduplicated) in Edmonton."""
+    """Bus route way segments (deduplicated)."""
     return _get_overlay("bus")
 
 
@@ -295,19 +295,19 @@ def _get_poi_overlay(name: str) -> dict:
 
 @router.get("/commercial")
 def overlay_commercial():
-    """Shops, restaurants, cafes, and services in Edmonton."""
+    """Shops, restaurants, cafes, and services."""
     return _get_poi_overlay("commercial")
 
 
 @router.get("/education")
 def overlay_education():
-    """Schools, universities, colleges, and libraries in Edmonton."""
+    """Schools, universities, colleges, and libraries."""
     return _get_poi_overlay("education")
 
 
 @router.get("/recreation")
 def overlay_recreation():
-    """Parks, rec centres, sports facilities, and pools in Edmonton."""
+    """Parks, rec centres, sports facilities, and pools."""
     return _get_poi_overlay("recreation")
 
 

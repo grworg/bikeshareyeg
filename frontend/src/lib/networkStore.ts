@@ -23,7 +23,6 @@ import {
 } from "@/lib/savedNetworks";
 import {
   getStations,
-  saveStations,
   clearStations as apiClearStations,
   getPlannerHexGrid,
   runPlannerOptimize,
@@ -58,16 +57,7 @@ const MAX_HISTORY = 200;
 // Module-level timers (not serializable — don't belong in store state)
 // ---------------------------------------------------------------------------
 
-let syncTimer: ReturnType<typeof setTimeout> | null = null;
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
-
-function syncToBackend() {
-  if (syncTimer) clearTimeout(syncTimer);
-  syncTimer = setTimeout(() => {
-    const { stations } = useNetworkStore.getState();
-    saveStations(stations).catch((err) => console.error("Failed to sync stations:", err));
-  }, 500);
-}
 
 function scheduleAutoSave() {
   const { activeNetworkId, _initialLoad } = useNetworkStore.getState();
@@ -245,7 +235,6 @@ export const useNetworkStore = create<NetworkStore>()(
           stations: next.stations,
           buildLog: next.buildLog,
         }, undefined, "history/push");
-        syncToBackend();
         scheduleAutoSave();
       },
 
@@ -262,7 +251,6 @@ export const useNetworkStore = create<NetworkStore>()(
           _future: [],
           _anchor: present,
         }, undefined, "history/commit");
-        syncToBackend();
         scheduleAutoSave();
       },
 
@@ -277,7 +265,6 @@ export const useNetworkStore = create<NetworkStore>()(
           stations: prev.stations,
           buildLog: prev.buildLog,
         }, undefined, "history/undo");
-        syncToBackend();
         scheduleAutoSave();
       },
 
@@ -292,7 +279,6 @@ export const useNetworkStore = create<NetworkStore>()(
           stations: next.stations,
           buildLog: next.buildLog,
         }, undefined, "history/redo");
-        syncToBackend();
         scheduleAutoSave();
       },
 
@@ -597,7 +583,7 @@ export const useNetworkStore = create<NetworkStore>()(
       loadNetwork: (network) => {
         get().resetHistory({ stations: network.stations, buildLog: network.buildLog ?? [] });
         set({
-          plannerConfig: network.plannerConfig,
+          plannerConfig: { ...DEFAULT_PLANNER_CONFIG, ...network.plannerConfig },
           plannerWeights: { ...ZERO_WEIGHTS, ...network.plannerWeights },
           decayRadii: { ...DEFAULT_DECAY_RADII, ...network.decayRadii },
           densityScales: { ...DEFAULT_DENSITY_SCALES, ...network.densityScales },
@@ -609,7 +595,6 @@ export const useNetworkStore = create<NetworkStore>()(
           _initialLoad: true,
         }, undefined, "network/load");
         setTimeout(() => set({ _initialLoad: false }), 100);
-        saveStations(network.stations).catch((err) => console.error("Failed to sync loaded stations:", err));
       },
 
       loadNetworkById: async (id) => {
@@ -687,7 +672,6 @@ export const useNetworkStore = create<NetworkStore>()(
 
       revertToSnapshot: (snapshotStations, truncatedLog) => {
         get().push({ stations: snapshotStations, buildLog: truncatedLog });
-        saveStations(snapshotStations).catch((err) => console.error("Failed to sync reverted stations:", err));
         set({ generatedStations: null, plannerCoverage: null }, undefined, "history/revert");
       },
 
@@ -696,9 +680,13 @@ export const useNetworkStore = create<NetworkStore>()(
       // =====================================================================
 
       init: () => {
-        getStations()
-          .then((loaded) => get().resetHistory({ stations: loaded, buildLog: [] }))
-          .catch((err) => console.error("Failed to load stations:", err));
+        const path = typeof window !== "undefined" ? window.location.pathname : "";
+        const hasNetworkId = /^\/(routing|designer)\/[a-f0-9-]+/.test(path);
+        if (!hasNetworkId) {
+          getStations()
+            .then((loaded) => get().resetHistory({ stations: loaded, buildLog: [] }))
+            .catch((err) => console.error("Failed to load stations:", err));
+        }
         get().loadSuitabilityData();
       },
     })),

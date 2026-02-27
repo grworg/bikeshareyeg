@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import { CirclePlus } from "lucide-react";
 
 export interface ContextMenuState {
   x: number;
@@ -56,7 +57,7 @@ export default function ContextMenu({ menu, onAddStation, onClose }: ContextMenu
 
   return (
     <div ref={ref} style={style}>
-      <div className="bg-white rounded-lg shadow-[var(--shadow-lg)] border border-[var(--color-border)] py-1 min-w-[200px] overflow-hidden">
+      <div className="bg-[var(--color-surface)] rounded-lg shadow-[var(--shadow-lg)] border border-[var(--color-border)] py-1 min-w-[200px] overflow-hidden">
         <button
           onClick={() => {
             onAddStation({ lng: menu.lng, lat: menu.lat });
@@ -64,10 +65,7 @@ export default function ContextMenu({ menu, onAddStation, onClose }: ContextMenu
           }}
           className="w-full text-left px-4 py-2.5 text-[13px] text-[var(--color-fg)] hover:bg-[var(--color-surface-hover)] transition-colors flex items-center gap-3"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5f6368" strokeWidth="2" strokeLinecap="round">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 8v8M8 12h8" />
-          </svg>
+          <CirclePlus size={16} className="text-[var(--color-secondary)]" />
           Add station here
         </button>
         <div className="mx-3 my-0.5 border-t border-[var(--color-border)]" />

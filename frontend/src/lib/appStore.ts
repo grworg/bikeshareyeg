@@ -6,6 +6,7 @@ import type {
   RouteOption,
   LatLng,
   OverlayKey,
+  TravelMode,
 } from "@/lib/types";
 import type { ContextMenuState } from "@/components/ContextMenu";
 import type { ModalState } from "@/components/Modal";
@@ -14,6 +15,7 @@ import {
   computeRoutes,
   getOverlay,
 } from "@/lib/api";
+import { useNetworkStore } from "@/lib/networkStore";
 
 // ---------------------------------------------------------------------------
 // Map callback registration
@@ -32,20 +34,38 @@ let mapCallbacks: MapCallbacks = {};
 const loadingKeys = new Set<OverlayKey>();
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Route mode toggles — user-facing transport mode filters
 // ---------------------------------------------------------------------------
 
-function zoomForBounds(p1: LatLng, p2: LatLng): number {
-  const latSpan = Math.abs(p1.lat - p2.lat);
-  const lngSpan = Math.abs(p1.lng - p2.lng);
-  const span = Math.max(latSpan, lngSpan * 0.59);
-  if (span > 0.25) return 10.5;
-  if (span > 0.12) return 11.5;
-  if (span > 0.06) return 12.5;
-  if (span > 0.03) return 13.5;
-  if (span > 0.015) return 14.5;
-  return 15;
+export type RouteModeToggle = "walk" | "bikeshare" | "lrt" | "bus";
+
+export const ROUTE_MODE_DEFAULTS: Record<RouteModeToggle, boolean> = {
+  walk: true,
+  bikeshare: true,
+  lrt: true,
+  bus: false,
+};
+
+function togglesToApiModes(t: Record<RouteModeToggle, boolean>): TravelMode[] {
+  const modes: TravelMode[] = [];
+  if (t.walk) modes.push("walk");
+  if (t.bikeshare) modes.push("bikeshare");
+  if (t.lrt || t.bus) {
+    modes.push("transit");
+    if (t.bikeshare) modes.push("transit_bike");
+  }
+  return modes;
 }
+
+function routeMatchesToggles(route: RouteOption, t: Record<RouteModeToggle, boolean>): boolean {
+  if (!t.bus && route.legs.some((l) => l.mode === "bus")) return false;
+  if (!t.lrt && route.legs.some((l) => l.mode === "lrt")) return false;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Store shape
@@ -92,6 +112,8 @@ interface AppStore {
   isLoadingRoutes: boolean;
   departureTime: string | null;
   setDepartureTime: (t: string | null) => void;
+  routeModeToggles: Record<RouteModeToggle, boolean>;
+  setRouteModeToggle: (key: RouteModeToggle, on: boolean) => void;
   getDirections: () => void;
   clearRoutes: () => void;
 
@@ -177,8 +199,8 @@ export const useAppStore = create<AppStore>()(
       // ---- Routing ----
       origin: null,
       destination: null,
-      setOrigin: (p) => set({ origin: p }, undefined, "routing/setOrigin"),
-      setDestination: (p) => set({ destination: p }, undefined, "routing/setDestination"),
+      setOrigin: (p) => set({ origin: p, routes: [], routeNotices: [], selectedRouteIndex: null }, undefined, "routing/setOrigin"),
+      setDestination: (p) => set({ destination: p, routes: [], routeNotices: [], selectedRouteIndex: null }, undefined, "routing/setDestination"),
       routes: [],
       routeNotices: [],
       selectedRouteIndex: null,
@@ -186,31 +208,57 @@ export const useAppStore = create<AppStore>()(
       isLoadingRoutes: false,
       departureTime: null,
       setDepartureTime: (t) => set({ departureTime: t }),
+      routeModeToggles: { ...ROUTE_MODE_DEFAULTS },
+      setRouteModeToggle: (key, on) =>
+        set(
+          (s) => ({ routeModeToggles: { ...s.routeModeToggles, [key]: on } }),
+          undefined,
+          "routing/toggleMode",
+        ),
 
       getDirections: () => {
-        const { origin, destination, departureTime } = get();
+        const { origin, destination, departureTime, routeModeToggles } = get();
         if (!origin || !destination) return;
 
-        const zoom = zoomForBounds(origin, destination);
+        const apiModes = togglesToApiModes(routeModeToggles);
+        if (apiModes.length === 0) return;
+
+        const sw: [number, number] = [
+          Math.min(origin.lng, destination.lng),
+          Math.min(origin.lat, destination.lat),
+        ];
+        const ne: [number, number] = [
+          Math.max(origin.lng, destination.lng),
+          Math.max(origin.lat, destination.lat),
+        ];
         set({
           flyTo: {
             latitude: (origin.lat + destination.lat) / 2,
             longitude: (origin.lng + destination.lng) / 2,
-            zoom, _ts: Date.now(),
+            zoom: 13,
+            bounds: [sw, ne],
+            padding: 80,
+            _ts: Date.now(),
           },
           isLoadingRoutes: true,
         }, undefined, "routing/getDirections");
 
+        const networkStations = useNetworkStore.getState().stations.map((s) => ({
+          id: s.id, name: s.name, lat: s.lat, lng: s.lng, bikes: s.bikes, capacity: s.capacity,
+        }));
+
         computeRoutes(
           { lat: origin.lat, lng: origin.lng },
           { lat: destination.lat, lng: destination.lng },
-          ["walk", "bike", "bikeshare", "transit", "transit_bike"],
+          apiModes,
           departureTime || undefined,
+          networkStations.length > 0 ? networkStations : undefined,
         )
           .then(({ routes: results, notices }) => {
+            const filtered = results.filter((r) => routeMatchesToggles(r, routeModeToggles));
             set({
-              routes: results, routeNotices: notices,
-              selectedRouteIndex: results.length > 0 ? 0 : null,
+              routes: filtered, routeNotices: notices,
+              selectedRouteIndex: filtered.length > 0 ? 0 : null,
             }, undefined, "routing/routesLoaded");
           })
           .catch((err) => {

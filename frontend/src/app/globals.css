@@ -13,11 +13,14 @@
   --color-red: #ea4335;
   --color-yellow: #fbbc04;
   --color-surface: #ffffff;
+  --color-surface-alt: #f8f9fa;
   --color-surface-hover: #f1f3f4;
+  --color-active-bg: #e8f0fe;
   --shadow-sm: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
   --shadow-md: 0 1px 3px 0 rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15);
   --shadow-lg: 0 1px 3px 0 rgba(60,64,67,0.3), 0 8px 16px 6px rgba(60,64,67,0.15);
   --radius: 8px;
+  color-scheme: light;
 }
 
 * {
@@ -55,7 +58,7 @@ body {
 /* Thin scrollbars for panel cards */
 .overflow-y-auto {
   scrollbar-width: thin;
-  scrollbar-color: #dadce0 transparent;
+  scrollbar-color: var(--color-border) transparent;
 }
 .overflow-y-auto::-webkit-scrollbar {
   width: 4px;
@@ -64,11 +67,11 @@ body {
   background: transparent;
 }
 .overflow-y-auto::-webkit-scrollbar-thumb {
-  background: #dadce0;
+  background: var(--color-border);
   border-radius: 4px;
 }
 .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-  background: #bdc1c6;
+  background: var(--color-secondary);
 }
 
 /* Help panel fade-in */
@@ -92,7 +95,7 @@ body {
   margin-bottom: 0.75rem;
 }
 .prose-section a {
-  color: #1a73e8;
+  color: var(--color-blue);
   text-decoration: none;
 }
 .prose-section a:hover {
@@ -100,7 +103,7 @@ body {
 }
 .prose-section code {
   font-size: 0.85em;
-  background: #f1f3f4;
+  background: var(--color-surface-hover);
   padding: 0.15em 0.4em;
   border-radius: 3px;
   font-family: 'Roboto Mono', ui-monospace, monospace;
@@ -114,7 +117,7 @@ body {
 }
 .prose-section strong {
   font-weight: 600;
-  color: #202124;
+  color: var(--color-fg);
 }
 
 /* ---- Animations ---- */
@@ -128,3 +131,119 @@ body {
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0);
+}
+
+/* Dynamic viewport height — tracks the actual visible area on mobile browsers
+   where the URL bar / system nav shrink the viewport below 100vh */
+.h-dvh {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* Bottom sheet handle — prevent page scroll during drag */
+[data-sheet-handle] {
+  touch-action: none;
+}
+
+/* ---- Range sliders ---- */
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  touch-action: pan-y;
+  height: 6px;
+  border-radius: 999px;
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: currentColor;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: currentColor;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+}
+@media (pointer: coarse) {
+  input[type="range"] {
+    pointer-events: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    width: 26px;
+    height: 26px;
+    pointer-events: auto;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 26px;
+    height: 26px;
+    pointer-events: auto;
+  }
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  .transition-transform,
+  .transition-opacity,
+  .transition-colors,
+  .transition-all {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* ---- Dark mode (opt-in via .dark class on <html>) ---- */
+html.dark {
+  --color-bg: #1a1a1a;
+  --color-fg: #e8eaed;
+  --color-secondary: #9aa0a6;
+  --color-border: #3c4043;
+  --color-blue: #8ab4f8;
+  --color-blue-hover: #aecbfa;
+  --color-green: #81c995;
+  --color-red: #f28b82;
+  --color-yellow: #fdd663;
+  --color-surface: #292929;
+  --color-surface-alt: #333333;
+  --color-surface-hover: #3c4043;
+  --color-active-bg: rgba(138, 180, 248, 0.15);
+  --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.5), 0 1px 3px 1px rgba(0,0,0,0.3);
+  --shadow-md: 0 1px 3px 0 rgba(0,0,0,0.5), 0 4px 8px 3px rgba(0,0,0,0.3);
+  --shadow-lg: 0 1px 3px 0 rgba(0,0,0,0.5), 0 8px 16px 6px rgba(0,0,0,0.3);
+  color-scheme: dark;
+}
+html.dark .border-gray-200,
+html.dark .border-gray-100 { border-color: var(--color-border) !important; }
+html.dark .text-gray-900 { color: var(--color-fg) !important; }
+html.dark .text-gray-800 { color: var(--color-fg) !important; }
+html.dark .text-gray-700,
+html.dark .text-gray-600 { color: var(--color-secondary) !important; }
+html.dark .text-gray-500,
+html.dark .text-gray-400 { color: var(--color-secondary) !important; }
+html.dark .hover\:bg-gray-50:hover,
+html.dark .hover\:bg-gray-100:hover { background-color: var(--color-surface-hover) !important; }
+html.dark .bg-gray-50,
+html.dark .bg-gray-100 { background-color: var(--color-surface-alt) !important; }
+html.dark .bg-gray-200 { background-color: var(--color-surface-hover) !important; }
+html.dark .bg-gray-300 { background-color: var(--color-border) !important; }
+html.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--color-border) !important; }
+html.dark .prose-section code { background: var(--color-surface-alt); color: var(--color-fg); }
+html.dark .prose-section strong { color: var(--color-fg); }
+html.dark .prose-section a { color: var(--color-blue); }
+html.dark .overflow-y-auto { scrollbar-color: #5f6368 transparent; }
+html.dark .overflow-y-auto::-webkit-scrollbar-thumb { background: #5f6368; }
+html.dark .overflow-y-auto::-webkit-scrollbar-thumb:hover { background: #80868b; }
+html.dark .maplibregl-ctrl-attrib { background: rgba(26,26,26,0.7) !important; color: #9aa0a6 !important; }
+html.dark input[type="range"]::-webkit-slider-thumb { border-color: var(--color-surface); }
+html.dark input[type="range"]::-moz-range-thumb { border-color: var(--color-surface); }

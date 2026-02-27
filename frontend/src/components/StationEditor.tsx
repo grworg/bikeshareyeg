@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect } from "react";
+import { X, Trash2 } from "lucide-react";
 import type { BikeStation } from "@/lib/types";
 
 interface StationEditorProps {
@@ -37,7 +38,7 @@ export default function StationEditor({
   return (
     <div className="border-b border-[var(--color-border)] shrink-0">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 bg-[#f8f9fa]">
+      <div className="flex items-center justify-between px-5 py-3 bg-[var(--color-surface-alt)]">
         <div className="min-w-0 flex-1">
           <p className="text-[10px] text-[var(--color-secondary)] uppercase tracking-wider">
             Editing Station
@@ -61,9 +62,7 @@ export default function StationEditor({
           className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center hover:bg-[var(--color-surface-hover)] transition-colors ml-2"
           title="Deselect (Esc)"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5f6368" strokeWidth="2" strokeLinecap="round">
-            <path d="M18 6L6 18M6 6l12 12" />
-          </svg>
+          <X size={14} className="text-[var(--color-secondary)]" />
         </button>
       </div>
 
@@ -81,7 +80,7 @@ export default function StationEditor({
         />
         {/* Fill bar */}
         <div className="flex items-center gap-2 text-[12px] text-[var(--color-secondary)]">
-          <div className="flex-1 h-2 rounded-full bg-[#e0e0e0] overflow-hidden">
+          <div className="flex-1 h-2 rounded-full bg-[var(--color-border)] overflow-hidden">
             <div className="h-full rounded-full transition-all"
               style={{ width: `${pct * 100}%`, backgroundColor: fillCol }} />
           </div>
@@ -93,7 +92,8 @@ export default function StationEditor({
         </div>
         {/* Delete */}
         <button onClick={onDelete}
-          className="w-full h-8 text-[12px] font-medium rounded-full border border-[#ea433580] text-[var(--color-red)] hover:bg-red-50 transition-colors">
+          className="w-full h-8 text-[12px] font-medium rounded-full border border-[#ea433580] text-[var(--color-red)] hover:bg-red-50 transition-colors flex items-center justify-center gap-1.5">
+          <Trash2 size={13} />
           Delete station
         </button>
       </div>

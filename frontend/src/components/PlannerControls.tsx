@@ -1,6 +1,20 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import {
+  Users,
+  Store,
+  GraduationCap,
+  TreePine,
+  TrainFront,
+  Bike,
+  Bus,
+  Info,
+  RotateCcw,
+  Zap,
+  SkipForward,
+  Check,
+} from "lucide-react";
 import type { PlannerWeights, PlannerDecayRadii, PlannerDensityScales, PlannerConfig, PlannerCoverage, PlannerAlgorithm } from "@/lib/types";
 import {
   DEFAULT_DECAY_RADII,
@@ -141,34 +155,13 @@ interface FactorMeta {
 }
 
 const FACTORS: FactorMeta[] = [
-  {
-    key: "population", label: "Population Density", color: "#e53935", helpKey: "population",
-    icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" /></svg>,
-  },
-  {
-    key: "commercial", label: "Commercial & Retail", color: "#e65100", helpKey: "commercial",
-    icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>,
-  },
-  {
-    key: "education", label: "Education & Institutional", color: "#283593", helpKey: "education",
-    icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z" /><path d="M6 12v5c0 1.66 2.69 3 6 3s6-1.34 6-3v-5" /></svg>,
-  },
-  {
-    key: "recreation", label: "Parks & Recreation", color: "#2e7d32", helpKey: "recreation",
-    icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 14c.3-1 .5-2.2.5-3.5A7.5 7.5 0 0010 3c-1.3 0-2.5.3-3.5.8" /><path d="M12 3v18" /><path d="M7.5 7C5 9 3 11.5 3 14c0 3.3 2.7 6 6 6h6c3.3 0 6-2.7 6-6 0-2.5-2-5-4.5-7" /></svg>,
-  },
-  {
-    key: "lrt", label: "LRT Proximity", color: "#7b1fa2", helpKey: "lrt",
-    icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="13" rx="2" /><line x1="4" y1="11" x2="20" y2="11" /><path d="M9 16l-2 5M15 16l2 5" /></svg>,
-  },
-  {
-    key: "bike_infra", label: "Bike Infrastructure", color: "#00838f", helpKey: "bike_infra",
-    icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5.5" cy="17" r="3.5" /><circle cx="18.5" cy="17" r="3.5" /><path d="M12 17V13l-3.5-4 4.5-2.5 2.5 4.5h3" /></svg>,
-  },
-  {
-    key: "transit", label: "Transit Access", color: "#0277bd", helpKey: "transit",
-    icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="14" rx="2" /><path d="M3 10h18" /><circle cx="7.5" cy="13.5" r="1" fill="currentColor" stroke="none" /><circle cx="16.5" cy="13.5" r="1" fill="currentColor" stroke="none" /><path d="M7 17l-1.5 3M17 17l1.5 3" /></svg>,
-  },
+  { key: "population", label: "Population Density", color: "#e53935", helpKey: "population", icon: <Users size={14} /> },
+  { key: "commercial", label: "Commercial & Retail", color: "#e65100", helpKey: "commercial", icon: <Store size={14} /> },
+  { key: "education", label: "Education & Institutional", color: "#283593", helpKey: "education", icon: <GraduationCap size={14} /> },
+  { key: "recreation", label: "Parks & Recreation", color: "#2e7d32", helpKey: "recreation", icon: <TreePine size={14} /> },
+  { key: "lrt", label: "LRT Proximity", color: "#7b1fa2", helpKey: "lrt", icon: <TrainFront size={14} /> },
+  { key: "bike_infra", label: "Bike Infrastructure", color: "#00838f", helpKey: "bike_infra", icon: <Bike size={14} /> },
+  { key: "transit", label: "Transit Access", color: "#0277bd", helpKey: "transit", icon: <Bus size={14} /> },
 ];
 
 // ---------------------------------------------------------------------------
@@ -200,7 +193,7 @@ export default function PlannerControls({
   return (
     <div>
       {/* ── Suitability toggle + Seed LRT (always visible) ── */}
-      <div className="flex items-center gap-2 px-5 py-2.5 border-b border-[var(--color-border)] bg-[#f8f9fa]">
+      <div className="flex items-center gap-2 px-5 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface-alt)]">
         <label className="flex items-center gap-2 cursor-pointer flex-1">
           <input
             type="checkbox"
@@ -237,9 +230,7 @@ export default function PlannerControls({
               }}
               className="text-[10px] font-medium text-[var(--color-secondary)] hover:text-[var(--color-fg)] transition-colors flex items-center gap-1"
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16" /><path d="M3 21v-5h5" />
-              </svg>
+              <RotateCcw size={12} />
               Reset All
             </button>
           </div>
@@ -483,7 +474,7 @@ export default function PlannerControls({
             <select
               value={config.algorithm}
               onChange={(e) => cfg("algorithm", e.target.value as PlannerAlgorithm)}
-              className="flex-1 h-8 rounded-md border border-[var(--color-border)] bg-white px-2.5 text-[12px] text-[var(--color-fg)] focus:outline-none focus:border-[var(--color-blue)]"
+              className="flex-1 h-8 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 text-[12px] text-[var(--color-fg)] focus:outline-none focus:border-[var(--color-blue)]"
             >
               <option value="iterative_mclp">Iterative MCLP</option>
               <option value="greedy">Greedy</option>
@@ -498,7 +489,7 @@ export default function PlannerControls({
                 <input
                   type="number" value={config.batchSize} min={1} max={100} step={1}
                   onChange={(e) => cfg("batchSize", Math.max(1, parseInt(e.target.value) || 1))}
-                  className="flex-1 h-7 rounded-md border border-[var(--color-border)] bg-white px-2 text-[12px] text-[var(--color-fg)] text-center focus:outline-none focus:border-[var(--color-blue)] tabular-nums"
+                  className="flex-1 h-7 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-[12px] text-[var(--color-fg)] text-center focus:outline-none focus:border-[var(--color-blue)] tabular-nums"
                 />
               </div>
               <HelpPanel helpKey="batchSize" openHelp={openHelp} />
@@ -549,7 +540,7 @@ export default function PlannerControls({
           <button
             onClick={onRunOptimize}
             disabled={isOptimizing || isStepping}
-            className="flex-1 h-10 rounded-full bg-[var(--color-blue)] text-white text-[13px] font-semibold hover:bg-[#1557b0] disabled:opacity-60 transition-colors flex items-center justify-center gap-2 shadow-sm"
+            className="flex-1 h-10 rounded-full bg-[var(--color-blue)] text-white text-[13px] font-semibold hover:bg-[var(--color-blue-hover)] disabled:opacity-60 transition-colors flex items-center justify-center gap-2 shadow-sm"
           >
             {isOptimizing ? (
               <>
@@ -558,9 +549,7 @@ export default function PlannerControls({
               </>
             ) : (
               <>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                </svg>
+                <Zap size={16} />
                 Generate All
               </>
             )}
@@ -569,15 +558,12 @@ export default function PlannerControls({
             onClick={onStep}
             disabled={isOptimizing || isStepping}
             title="Place the next optimal station (greedy step)"
-            className="h-10 px-4 rounded-full border-2 border-[var(--color-blue)] text-[var(--color-blue)] text-[13px] font-semibold hover:bg-[#e8f0fe] disabled:opacity-60 transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+            className="h-10 px-4 rounded-full border-2 border-[var(--color-blue)] text-[var(--color-blue)] text-[13px] font-semibold hover:bg-[var(--color-active-bg)] disabled:opacity-60 transition-colors flex items-center justify-center gap-1.5 shadow-sm"
           >
             {isStepping ? (
               <span className="inline-block w-4 h-4 border-2 border-[var(--color-blue)] border-t-transparent rounded-full animate-spin" />
             ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="5 4 15 12 5 20 5 4" fill="currentColor" />
-                <line x1="19" y1="5" x2="19" y2="19" />
-              </svg>
+              <SkipForward size={16} />
             )}
             +1
           </button>
@@ -596,7 +582,7 @@ export default function PlannerControls({
 
       {/* ── Coverage scorecard ── */}
       {coverage && (
-        <div className="px-5 py-3 border-t border-[var(--color-border)] bg-[#f8f9fa]">
+        <div className="px-5 py-3 border-t border-[var(--color-border)] bg-[var(--color-surface-alt)]">
           <p className="text-[11px] font-medium text-[var(--color-secondary)] uppercase tracking-wider mb-2">Results</p>
           <div className="grid grid-cols-2 gap-2">
             <StatCard label="New Stations" value={String(coverage.stations_placed)} />
@@ -615,9 +601,7 @@ export default function PlannerControls({
               onClick={onApplyStations}
               className="w-full mt-3 h-9 rounded-full border-2 border-[#34a853] text-[#34a853] text-[12px] font-semibold hover:bg-[#e8f5e9] transition-colors flex items-center justify-center gap-2"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 6L9 17l-5-5" />
-              </svg>
+              <Check size={14} strokeWidth={2.5} />
               Add {coverage.stations_placed} Stations to Network
             </button>
           )}
@@ -630,7 +614,7 @@ export default function PlannerControls({
           <div>
             <p className="font-semibold text-[var(--color-fg)] mb-1">Spatial Analysis</p>
             <p>
-              Edmonton is divided into ~12,000 hexagonal cells (H3 resolution 9, ~175m across).
+              The city is divided into thousands of hexagonal cells (H3 resolution 9, ~175m across).
               A <strong>road-network feasibility mask</strong> excludes cells that are in rivers,
               rail yards, or more than 75m from any road, path, or sidewalk. Only the ~8,000
               routable cells are considered for station placement.
@@ -641,7 +625,7 @@ export default function PlannerControls({
             <p>
               All distances are measured <strong>along the road and path network</strong> using
               shortest-path (Dijkstra) algorithms on an OpenStreetMap graph with ~165,000 nodes.
-              This means the North Saskatchewan River, rail corridors, and freeways act as real
+              This means rivers, rail corridors, and freeways act as real
               barriers, unlike straight-line distance.
             </p>
           </div>
@@ -670,7 +654,7 @@ export default function PlannerControls({
             <ul className="list-disc pl-4 space-y-0.5">
               <li>OpenStreetMap via Overpass API (roads, transit stops, POIs, bike lanes)</li>
               <li>Statistics Canada 2021 Census (population by Dissemination Area)</li>
-              <li>Edmonton GTFS (transit network)</li>
+              <li>GTFS transit feed (transit network)</li>
             </ul>
           </div>
         </div>
@@ -696,9 +680,7 @@ function InfoButton({
       style={{ width: size + 4, height: size + 4, background: isOpen ? "#e8f0fe" : "transparent" }}
       title="More info"
     >
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={isOpen ? "#1a73e8" : "#9aa0a6"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
-      </svg>
+      <Info size={size} className={isOpen ? "text-[var(--color-blue)]" : "text-[var(--color-secondary)]"} />
     </button>
   );
 }
@@ -710,21 +692,21 @@ function HelpPanel({ helpKey, openHelp, inline }: { helpKey: string; openHelp: s
 
   return (
     <div
-      className={`bg-[#e8f0fe] rounded-lg text-[11px] leading-relaxed text-[#202124] ${inline ? "px-3 py-2" : "mx-5 mb-2 px-3 py-2.5"}`}
+      className={`bg-[var(--color-active-bg)] rounded-lg text-[11px] leading-relaxed text-[var(--color-fg)] ${inline ? "px-3 py-2" : "mx-5 mb-2 px-3 py-2.5"}`}
       style={{ animation: "fadeIn 0.15s ease" }}
     >
-      <p className="font-semibold text-[12px] text-[#1a73e8] mb-1">{entry.title}</p>
+      <p className="font-semibold text-[12px] text-[var(--color-blue)] mb-1">{entry.title}</p>
       <div className="mb-1.5 whitespace-pre-line">{entry.intuitive}</div>
       <details className="group">
-        <summary className="cursor-pointer text-[10px] font-medium text-[#5f6368] hover:text-[#1a73e8] transition-colors select-none">
+        <summary className="cursor-pointer text-[10px] font-medium text-[var(--color-secondary)] hover:text-[var(--color-blue)] transition-colors select-none">
           How it works technically
         </summary>
-        <p className="mt-1 text-[10px] text-[#5f6368] leading-relaxed">{entry.technical}</p>
+        <p className="mt-1 text-[10px] text-[var(--color-secondary)] leading-relaxed">{entry.technical}</p>
       </details>
       {entry.links && entry.links.length > 0 && (
         <div className="mt-2 pt-1.5 border-t border-[#c5d8f8] flex flex-wrap gap-x-3 gap-y-1">
           {entry.links.map((link) => (
-            <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" className="text-[10px] font-medium text-[#1a73e8] hover:underline">
+            <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" className="text-[10px] font-medium text-[var(--color-blue)] hover:underline">
               {link.label} &rarr;
             </a>
           ))}
@@ -749,7 +731,7 @@ function NumberFieldWithHelp({
       <input
         type="number" value={value} min={min} max={max} step={step}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full h-7 text-[12px] text-[var(--color-fg)] bg-white border border-[var(--color-border)] rounded px-2 focus:outline-none focus:border-[var(--color-blue)] transition-colors tabular-nums"
+        className="w-full h-7 text-[12px] text-[var(--color-fg)] bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-2 focus:outline-none focus:border-[var(--color-blue)] transition-colors tabular-nums"
       />
     </div>
   );
@@ -757,7 +739,7 @@ function NumberFieldWithHelp({
 
 function StatCard({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div className="bg-white rounded-md px-2.5 py-1.5 border border-[var(--color-border)]">
+    <div className="bg-[var(--color-surface)] rounded-md px-2.5 py-1.5 border border-[var(--color-border)]">
       <p className="text-[10px] text-[var(--color-secondary)]">{label}</p>
       <p className="text-[14px] font-semibold tabular-nums" style={{ color: color || "var(--color-fg)" }}>{value}</p>
     </div>

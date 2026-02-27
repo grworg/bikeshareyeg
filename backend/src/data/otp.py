@@ -2,8 +2,8 @@
 OpenTripPlanner 2 client.
 
 Provides an async interface to OTP's GraphQL trip-planning API.
-OTP handles multi-modal routing across the Edmonton transit network
-(LRT + bus + walking) using GTFS schedules and OSM street data.
+OTP handles multi-modal routing across the city's transit network
+(rapid transit + bus + walking) using GTFS schedules and OSM street data.
 
 Falls back gracefully when OTP is not running.
 """
@@ -117,7 +117,8 @@ query Plan(
   $date: String!,
   $time: String!,
   $numItineraries: Int!,
-  $transportModes: [TransportMode!]
+  $transportModes: [TransportMode!],
+  $walkReluctance: Float
 ) {
   plan(
     from: { lat: $fromLat, lon: $fromLon }
@@ -126,6 +127,7 @@ query Plan(
     time: $time
     numItineraries: $numItineraries
     transportModes: $transportModes
+    walkReluctance: $walkReluctance
   ) {
     itineraries {
       duration
@@ -313,7 +315,7 @@ async def plan(
     time_s: int,             # seconds since midnight
     mode: str = "WALK,TRANSIT",
     num_itineraries: int = 5,
-    max_walk_distance: int = 2000,
+    walk_reluctance: float | None = None,
     client: httpx.AsyncClient | None = None,
 ) -> list[OTPItinerary]:
     """
@@ -329,7 +331,7 @@ async def plan(
     time_str = f"{h:02d}:{m:02d}"
     date_str = query_date.strftime("%Y-%m-%d")
 
-    variables = {
+    variables: dict[str, object] = {
         "fromLat": from_lat,
         "fromLon": from_lng,
         "toLat": to_lat,
@@ -339,6 +341,8 @@ async def plan(
         "numItineraries": num_itineraries,
         "transportModes": _build_transport_modes(mode),
     }
+    if walk_reluctance is not None:
+        variables["walkReluctance"] = walk_reluctance
 
     own_client = client is None
     try:

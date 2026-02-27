@@ -51,7 +51,6 @@ class ResponseCache:
                 self._data.popitem(last=False)
 
 
-# Shared singleton — imported by routing, geocode, elevation
+# Shared singletons
 route_cache = ResponseCache(max_size=5000, ttl_s=3600)
-geocode_cache = ResponseCache(max_size=2000, ttl_s=7200)
 elevation_cache = ResponseCache(max_size=2000, ttl_s=86400)

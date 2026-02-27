@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate placeholder images for BikeShareYEG documentation.
+"""Generate placeholder images for documentation.
 
 Each image is a light grey card with a subtle border, the description
 text centered and wrapped, and a "PLACEHOLDER" watermark. Designed to
@@ -126,7 +126,7 @@ IMAGES = [
     # (filename, width, height, description, subtitle)
     (
         "hero-banner.png", 960, 300,
-        "BikeShareYEG — Edmonton's Bike-Share Planning Tool",
+        "Bike-Share Planning Tool",
         "Wide hero showing the map with suitability overlay, stations, and sidebar UI",
     ),
     (

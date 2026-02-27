@@ -1,25 +1,17 @@
 #!/usr/bin/env python3
 """
-Fetch 2021 Federal Census population data at the Dissemination Area (DA) level
-from Statistics Canada, combine with DA boundary polygons, compute population
-density, and write a compact GeoJSON file for use as a map overlay.
+Generate population density GeoJSON for the active city.
 
-Data sources:
-  - DA Boundary Shapefile (Cartographic):
-    StatsCan 2021 Census Boundary Files – Dissemination Areas
-    ~197 MB download, cached locally.
+Dispatches to the appropriate PopulationProvider based on the city config:
+  - "statscan"   — StatsCan 2021 Census DA boundaries (Canadian cities)
+  - "us_census"  — ACS 5-year + TIGER/Line (US cities, stub)
+  - "geojson"    — Pre-supplied file (no generation needed)
 
-  - DA Population Counts:
-    StatsCan 2021 Census Profile – Prairies (MB, SK, AB)
-    ~436 MB download, streamed & filtered to Edmonton CMA DAs only.
-
-Edmonton CMA code: 835
-
-Requirements: geopandas, pandas, requests  (all in pyproject.toml)
+For Canadian cities (provider: "statscan"), fetches StatsCan data at the DA level.
 
 Usage:
     python scripts/process-census-data.py            # DA-level (default)
-    python scripts/process-census-data.py --neighbourhood  # neighbourhood-level fallback
+    python scripts/process-census-data.py --neighbourhood  # neighbourhood-level fallback (Edmonton-specific)
 """
 
 from __future__ import annotations
@@ -43,6 +35,10 @@ except ImportError as e:
     print(f"Missing dependency: {e}. Run:  pip install geopandas pandas requests", file=sys.stderr)
     sys.exit(1)
 
+# Allow importing from backend/
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+from src.city_loader import load_city_config  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -52,7 +48,9 @@ CACHE_DIR = PROJECT_ROOT / "data" / "cache"
 OUTPUT_DIR = PROJECT_ROOT / "data" / "overlays"
 OUTPUT_FILE = OUTPUT_DIR / "population_density.geojson"
 
-EDMONTON_CMA = "835"  # StatsCan CMA code for Edmonton
+_city = load_city_config()
+CMA_CODE = _city.population.statscan_cma_code or "835"
+UTM_EPSG = _city.utm_epsg
 
 # StatsCan download URLs
 DA_BOUNDARY_URL = (
@@ -65,7 +63,7 @@ CENSUS_PROFILE_PRAIRIES_URL = (
     "Lang=E&FILETYPE=CSV&GEONO=006_Prairies"
 )
 
-# Edmonton Open Data (fallback neighbourhood-level)
+# Edmonton Open Data (neighbourhood-level fallback — Edmonton-specific)
 NEIGHBOURHOOD_BOUNDARIES_URL = "https://data.edmonton.ca/resource/5bk4-5txu.json"
 NEIGHBOURHOOD_POPULATION_URL = "https://data.edmonton.ca/resource/eg3i-f4bj.json"
 
@@ -161,7 +159,7 @@ def process_da_level() -> dict:
     boundary_zip = _download(DA_BOUNDARY_URL, CACHE_DIR / "lda_000b21a_e.zip", "DA boundaries (197 MB)")
 
     # 2. Read with geopandas, filter to Edmonton CMA
-    print("\n[2/4] Reading & filtering DA boundaries to Edmonton CMA …")
+    print(f"\n[2/4] Reading & filtering DA boundaries to CMA {CMA_CODE} ({_city.name}) …")
     gdf = gpd.read_file(f"zip://{boundary_zip}")
     print(f"  Total DAs across Canada: {len(gdf):,}")
     print(f"  CRS: {gdf.crs}")
@@ -180,30 +178,25 @@ def process_da_level() -> dict:
             break
 
     if cma_col and cma_col != "CMANAME":
-        edm = gdf[gdf[cma_col] == EDMONTON_CMA].copy()
+        edm = gdf[gdf[cma_col] == CMA_CODE].copy()
     elif cma_col == "CMANAME":
-        edm = gdf[gdf[cma_col].str.contains("Edmonton", case=False, na=False)].copy()
+        edm = gdf[gdf[cma_col].str.contains(_city.name, case=False, na=False)].copy()
     else:
-        # No CMA column — filter by Alberta (PRUID=48) + Edmonton bounding box
-        print("  No CMAUID column. Filtering Alberta DAs by bounding box …")
-        # First narrow to Alberta
-        if "PRUID" in gdf.columns:
-            ab = gdf[gdf["PRUID"] == "48"].copy()
-            print(f"  Alberta DAs: {len(ab):,}")
-        else:
-            ab = gdf
-        # Then bounding box (generous — covers full Edmonton CMA)
-        edm = ab.cx[-114.15:-113.10, 53.30:53.75].copy()
+        # No CMA column — fall back to bounding box from city config
+        _b = _city.bbox
+        pad = 0.15  # generous padding around configured bbox
+        print(f"  No CMAUID column. Filtering DAs by bounding box …")
+        edm = gdf.cx[_b.west - pad : _b.east + pad, _b.south - pad : _b.north + pad].copy()
 
-    print(f"  Edmonton CMA DAs: {len(edm):,}")
+    print(f"  {_city.name} CMA DAs: {len(edm):,}")
     if len(edm) == 0:
-        print("  ERROR: No DAs found for Edmonton.")
+        print(f"  ERROR: No DAs found for {_city.name}.")
         sys.exit(1)
 
     # Get set of DA unique IDs for filtering the census profile
     dauid_col = "DAUID" if "DAUID" in edm.columns else edm.columns[0]
-    edmonton_dauids = set(edm[dauid_col].astype(str).values)
-    print(f"  DA IDs collected: {len(edmonton_dauids)}")
+    city_dauids = set(edm[dauid_col].astype(str).values)
+    print(f"  DA IDs collected: {len(city_dauids)}")
 
     # 3. Download Census Profile & extract population for Edmonton DAs
     print("\n[3/4] Census Profile (population extraction)")
@@ -214,7 +207,7 @@ def process_da_level() -> dict:
     )
 
     da_population: dict[str, int] = {}
-    print("  Scanning Census Profile for Edmonton DA population …")
+    print(f"  Scanning Census Profile for {_city.name} DA population …")
 
     with zipfile.ZipFile(profile_zip_path, "r") as zf:
         # Find the main CSV file inside the zip
@@ -243,7 +236,7 @@ def process_da_level() -> dict:
 
                 # Check if this row is for an Edmonton DA
                 geo_code = row.get("ALT_GEO_CODE") or row.get("GEO_CODE (POR)") or ""
-                if geo_code not in edmonton_dauids:
+                if geo_code not in city_dauids:
                     continue
 
                 # Check if this is the "Population, 2021" characteristic (ID = 1)
@@ -266,10 +259,10 @@ def process_da_level() -> dict:
                     pass
 
                 # Early exit if we've found all Edmonton DAs
-                if matched >= len(edmonton_dauids):
+                if matched >= len(city_dauids):
                     break
 
-    print(f"  Population data matched: {len(da_population):,} DAs out of {len(edmonton_dauids):,}")
+    print(f"  Population data matched: {len(da_population):,} DAs out of {len(city_dauids):,}")
 
     # 4. Build GeoJSON
     print("\n[4/4] Building GeoJSON …")
@@ -306,8 +299,7 @@ def process_da_level() -> dict:
             "geometry": geojson_geom,
         })
 
-    # Compute area using a projected CRS (UTM zone 12N for Edmonton)
-    edm_utm = edm.to_crs(epsg=32612)
+    edm_utm = edm.to_crs(epsg=UTM_EPSG)
     area_map: dict[str, float] = {}
     for _, row in edm_utm.iterrows():
         dauid = str(row[dauid_col])
@@ -357,7 +349,7 @@ def _multipolygon_area_km2(coords: list) -> float:
 
 
 def process_neighbourhood_level() -> dict:
-    """Neighbourhood-level fallback using Edmonton Open Data (no large downloads)."""
+    """Neighbourhood-level fallback using Edmonton Open Data (Edmonton-specific, no large downloads)."""
     print("\nFetching neighbourhood boundaries …")
     resp_b = requests.get(NEIGHBOURHOOD_BOUNDARIES_URL, params={"$limit": 5000}, timeout=120)
     resp_b.raise_for_status()
@@ -419,9 +411,25 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Process census data for population density overlay")
     parser.add_argument(
         "--neighbourhood", action="store_true",
-        help="Use neighbourhood-level data from Edmonton Open Data (faster, less granular)",
+        help="Use neighbourhood-level data from Edmonton Open Data (Edmonton-specific, faster, less granular)",
     )
     args = parser.parse_args()
+
+    provider = _city.population.provider
+    print(f"City: {_city.name} ({_city.short_code}), population provider: {provider}")
+
+    if provider == "geojson":
+        if OUTPUT_FILE.exists():
+            print(f"✓ Pre-supplied {OUTPUT_FILE} already exists, nothing to do.")
+            return
+        print(f"ERROR: provider=geojson but {OUTPUT_FILE} not found.")
+        print("  Place your population_density.geojson there manually.")
+        sys.exit(1)
+
+    if provider == "us_census":
+        print("ERROR: us_census provider is not yet implemented.")
+        print("  Set population.provider to 'geojson' and supply the file manually.")
+        sys.exit(1)
 
     if args.neighbourhood:
         print("=== Neighbourhood-level population density ===")

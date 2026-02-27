@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────
-# BikeShareYEG — Local Development Environment
+# Bike-Share Planner — Local Development Environment
 #
 # Installs dependencies (if needed) and starts the backend API,
 # frontend dev server, and (optionally) OpenTripPlanner.
@@ -112,7 +112,7 @@ cleanup() {
     kill "$pid" 2>/dev/null || true
   done
   if [ "$WITH_OTP" = true ]; then
-    docker stop bikeshareyeg-otp 2>/dev/null || true
+    docker stop "$(docker ps -qf name=-otp)" 2>/dev/null || true
   fi
   wait 2>/dev/null
   ok "Stopped."
@@ -143,7 +143,7 @@ PIDS+=($FRONTEND_PID)
 
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════════════${NC}"
-echo -e "${BOLD}  BikeShareYEG — Development Environment${NC}"
+echo -e "${BOLD}  Bike-Share Planner — Development Environment${NC}"
 echo -e "${BOLD}═══════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "  ${GREEN}Frontend:${NC}  http://localhost:3000"

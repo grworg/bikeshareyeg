@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { Menu } from "lucide-react";
+import { cityConfig } from "@/lib/cityConfig";
 
 interface SidebarProps {
   simResults?: {
@@ -40,16 +42,16 @@ export default function Sidebar({
     return (
       <button
         onClick={() => setCollapsed(false)}
-        className="absolute top-4 left-4 z-30 bg-white rounded-full w-10 h-10 flex items-center justify-center shadow-[var(--shadow-md)] hover:bg-[var(--color-surface-hover)] transition-colors"
+        className="absolute top-4 left-4 z-30 bg-[var(--color-surface)] rounded-full w-10 h-10 flex items-center justify-center shadow-[var(--shadow-md)] hover:bg-[var(--color-surface-hover)] transition-colors"
         aria-label="Open panel"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5f6368" strokeWidth="2" strokeLinecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        <Menu size={18} className="text-[var(--color-secondary)]" />
       </button>
     );
   }
 
   return (
-    <aside className="absolute top-2 left-2 bottom-2 z-30 w-[360px] bg-white rounded-lg shadow-[var(--shadow-lg)] flex flex-col overflow-hidden">
+    <aside className="absolute top-2 left-2 bottom-2 z-30 w-[360px] bg-[var(--color-surface)] rounded-lg shadow-[var(--shadow-lg)] flex flex-col overflow-hidden">
       {/* Header — Google Maps-style search bar look */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--color-border)]">
         <button
@@ -57,14 +59,14 @@ export default function Sidebar({
           className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center hover:bg-[var(--color-surface-hover)] transition-colors"
           aria-label="Close panel"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5f6368" strokeWidth="2" strokeLinecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+          <Menu size={18} className="text-[var(--color-secondary)]" />
         </button>
         <div className="min-w-0">
           <h1 className="text-[15px] font-medium text-[var(--color-fg)] leading-tight truncate">
-            BikeShareYEG
+            {cityConfig.appName}
           </h1>
           <p className="text-xs text-[var(--color-secondary)] leading-tight mt-0.5">
-            Edmonton Bike-Share Network Planner
+            {cityConfig.tagline}
           </p>
         </div>
       </div>
@@ -157,9 +159,9 @@ export default function Sidebar({
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-2.5 border-t border-[var(--color-border)] bg-[#f8f9fa]">
+      <div className="px-4 py-2.5 border-t border-[var(--color-border)] bg-[var(--color-surface-alt)]">
         <p className="text-[11px] text-[var(--color-secondary)] leading-relaxed">
-          Data: OpenStreetMap, City of Edmonton Open Data, Statistics Canada
+          Data: OpenStreetMap, Statistics Canada, GTFS
         </p>
       </div>
     </aside>

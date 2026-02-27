@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────
-# BikeShareYEG — Deploy to Production
+# Deploy to Production
 #
 # Builds Docker images locally, transfers them to the remote
 # server, syncs code and data, and restarts services.
 #
-# This approach works even when the server lacks outbound internet
-# from Docker containers (no docker pull / docker build on server).
+# City-specific values (app name, site URL, container names) are
+# read from cities/<BIKESHARE_CITY>.yaml via the Python loader.
 #
 # Usage:
 #   ./scripts/deploy.sh                    # full deploy
@@ -15,7 +15,7 @@
 #
 # Prerequisites:
 #   - Docker (local, for building images)
-#   - SSH access to the server (configured as "grassroots" in ~/.ssh/config)
+#   - SSH access to the server
 #   - rsync
 #
 # Configuration:
@@ -26,10 +26,23 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_DIR"
 
+# ── Read city config via Python helper ────────────────────────
+_city_vals() {
+  "$PROJECT_DIR/backend/.venv/bin/python" -c "
+import sys; sys.path.insert(0, '$PROJECT_DIR/backend')
+from src.city_loader import load_city_config
+c = load_city_config()
+print(c.short_code.lower())
+print(c.app_name)
+print(c.site_url.rstrip('/').split('/')[-1])  # domain
+"
+}
+IFS=$'\n' read -r -d '' CITY_CODE APP_NAME CITY_DOMAIN < <(_city_vals && printf '\0')
+
 # ── Configuration (override via env vars) ────────────────────
 SSH_HOST="${DEPLOY_SSH_HOST:-grassroots}"
 REMOTE_DIR="${DEPLOY_REMOTE_DIR:-/opt/bikeshareyeg}"
-DOMAIN="${DEPLOY_DOMAIN:-bikeshare.grassrootswork.org}"
+DOMAIN="${DEPLOY_DOMAIN:-$CITY_DOMAIN}"
 
 SKIP_BUILD=false
 SYNC_DATA=false
@@ -80,7 +93,7 @@ if [ "$SKIP_BUILD" = false ]; then
   ok "Images built"
 
   step "Transferring images to server"
-  docker save bikeshareyeg-api bikeshareyeg-web \
+  docker save "bikeshare${CITY_CODE}-api" "bikeshare${CITY_CODE}-web" \
     | gzip \
     | ssh "$SSH_HOST" "docker load"
   ok "Images loaded on server"
@@ -122,12 +135,12 @@ if [ "$SYNC_DATA" = true ]; then
   fi
   # Minimal road graph pickle (used by hex-path Dijkstra endpoint)
   ssh "$SSH_HOST" "mkdir -p $REMOTE_DIR/data/cache"
-  if [ -f data/cache/edmonton_road_graph_minimal.pkl ]; then
-    rsync -az data/cache/edmonton_road_graph_minimal.pkl \
-      "$SSH_HOST:$REMOTE_DIR/data/cache/edmonton_road_graph_minimal.pkl"
-    ok "Road graph synced ($(du -h data/cache/edmonton_road_graph_minimal.pkl | cut -f1))"
+  ROAD_GRAPH="data/cache/${CITY_CODE}_road_graph_minimal.pkl"
+  if [ -f "$ROAD_GRAPH" ]; then
+    rsync -az "$ROAD_GRAPH" "$SSH_HOST:$REMOTE_DIR/$ROAD_GRAPH"
+    ok "Road graph synced ($(du -h "$ROAD_GRAPH" | cut -f1))"
   else
-    err "data/cache/edmonton_road_graph_minimal.pkl not found — run: make hexgrid"
+    err "$ROAD_GRAPH not found — run: make hexgrid"
   fi
   ok "Data files synced"
 fi
@@ -147,16 +160,15 @@ step "Restarting services"
 ssh "$SSH_HOST" "cd $REMOTE_DIR && docker compose up -d --no-build"
 ok "Services started"
 
-# ── Connect host Caddy to bikeshareyeg network ──────────────
-# The host's grassroots-caddy reverse-proxies to bikeshareyeg-caddy
-# by container name, so it must be on the same Docker network.
-step "Connecting host Caddy to bikeshareyeg network"
-BIKESHARE_NET=$(ssh "$SSH_HOST" "docker inspect bikeshareyeg-caddy --format '{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}}{{end}}'" 2>/dev/null || true)
+# ── Connect host Caddy to app network ────────────────────────
+CADDY_CTR="bikeshare${CITY_CODE}-caddy"
+step "Connecting host Caddy to $CADDY_CTR network"
+BIKESHARE_NET=$(ssh "$SSH_HOST" "docker inspect $CADDY_CTR --format '{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}}{{end}}'" 2>/dev/null || true)
 if [ -n "$BIKESHARE_NET" ]; then
   ssh "$SSH_HOST" "docker network connect $BIKESHARE_NET grassroots-caddy 2>/dev/null || true"
   ok "grassroots-caddy connected to $BIKESHARE_NET"
 else
-  err "Could not determine bikeshareyeg network name"
+  err "Could not determine network name for $CADDY_CTR"
 fi
 
 # ── Health check ─────────────────────────────────────────────
@@ -168,7 +180,7 @@ for i in $(seq 1 20); do
   fi
   if [ "$i" -eq 20 ]; then
     err "API did not become healthy in 60s"
-    ssh "$SSH_HOST" "docker logs bikeshareyeg-api --tail 10" 2>&1
+    ssh "$SSH_HOST" "docker logs bikeshare${CITY_CODE}-api --tail 10" 2>&1
     exit 1
   fi
   sleep 3

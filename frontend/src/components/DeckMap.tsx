@@ -18,13 +18,15 @@ import {
 } from "@/components/OverlayControls";
 import {
   scoreHex,
-  FACTOR_LABELS,
   DEFAULT_DECAY_RADII,
   DEFAULT_DENSITY_SCALES,
   type ScorerParams,
   type HexScore,
 } from "@/lib/suitability";
 import { getHexPath } from "@/lib/api";
+import { stationHexColor, stationRgba, FACTOR_COLORS, hexToRgb } from "@/components/map/helpers";
+import { PinMarker, BikeStationIcon, TrainStationIcon, RichStationMarker } from "@/components/map/markers";
+import { HexPopupContent, StationPopupContent } from "@/components/map/popups";
 
 // ---------------------------------------------------------------------------
 // Exported types
@@ -35,6 +37,8 @@ export interface FlyToTarget {
   longitude: number;
   zoom: number;
   _ts: number;
+  bounds?: [[number, number], [number, number]];
+  padding?: number;
 }
 
 interface DeckMapProps {
@@ -51,6 +55,7 @@ interface DeckMapProps {
     lat: number;
   }) => void;
   designerMode?: boolean;
+  isMobile?: boolean;
   selectedStationId?: string | null;
   onStationClick?: (stationId: string) => void;
   onDeleteStation?: (stationId: string) => void;
@@ -60,7 +65,6 @@ interface DeckMapProps {
   ) => void;
   overlayData?: Partial<Record<OverlayKey, GeoJSON.FeatureCollection>>;
   activeOverlays?: Set<OverlayKey>;
-  // Suitability hex grid (planner)
   suitabilityData?: GeoJSON.FeatureCollection | null;
   suitabilityWeights?: PlannerWeights | null;
   suitabilityDecayRadii?: PlannerDecayRadii | null;
@@ -77,496 +81,8 @@ type PopupData =
   | { kind: "hex"; x: number; y: number; h3Id: string; score: HexScore; proxFactor: number }
   | { kind: "station"; x: number; y: number; station: BikeStation };
 
-// ---------------------------------------------------------------------------
-// Icon: Google Maps teardrop pin (origin / destination)
-// ---------------------------------------------------------------------------
 
-function PinMarker({ color, size = 40 }: { color: string; size?: number }) {
-  const w = Math.round(size * (24 / 36));
-  return (
-    <svg
-      width={w}
-      height={size}
-      viewBox="0 0 24 36"
-      fill="none"
-      style={{ filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.35))" }}
-    >
-      <path
-        d="M12 0C5.372 0 0 5.372 0 12c0 9 12 24 12 24s12-15 12-24C24 5.372 18.628 0 12 0z"
-        fill={color}
-      />
-      <circle cx="12" cy="12" r="4.5" fill="white" />
-    </svg>
-  );
-}
 
-// ---------------------------------------------------------------------------
-// Availability color helper — green / yellow / red based on fill ratio
-// ---------------------------------------------------------------------------
-
-function stationHexColor(bikes: number, capacity: number): string {
-  const pct = bikes / Math.max(capacity, 1);
-  if (pct < 0.15 || pct > 0.85) return "#ea4335"; // red – danger
-  if (pct < 0.3 || pct > 0.7) return "#fbbc04"; // yellow – warning
-  return "#34a853"; // green – balanced
-}
-
-/** RGBA tuple for deck.gl layers — avoids hex→rgba parse per frame. */
-function stationRgba(bikes: number, capacity: number): [number, number, number, number] {
-  const pct = bikes / Math.max(capacity, 1);
-  if (pct < 0.15 || pct > 0.85) return [234, 67, 53, 230];
-  if (pct < 0.3 || pct > 0.7) return [251, 188, 4, 230];
-  return [52, 168, 83, 230];
-}
-
-// ---------------------------------------------------------------------------
-// Icon: Bike station marker (colored circle with white bike silhouette)
-// ---------------------------------------------------------------------------
-
-function BikeStationIcon({
-  size = 24,
-  selected = false,
-  color = "#34a853",
-  onClick,
-  title,
-}: {
-  size?: number;
-  selected?: boolean;
-  color?: string;
-  onClick?: () => void;
-  title?: string;
-}) {
-  return (
-    <div
-      onClick={
-        onClick
-          ? (e) => {
-              e.stopPropagation();
-              onClick();
-            }
-          : undefined
-      }
-      title={title}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        backgroundColor: color,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        border: selected ? "3px solid #1a73e8" : "2px solid white",
-        boxShadow: selected
-          ? "0 0 0 3px rgba(26,115,232,0.3), 0 2px 4px rgba(0,0,0,0.3)"
-          : "0 1px 3px rgba(0,0,0,0.3)",
-        cursor: onClick ? "grab" : "pointer",
-        transition: "box-shadow 0.15s, border 0.15s, background-color 0.2s",
-      }}
-    >
-      <svg
-        width={size * 0.55}
-        height={size * 0.55}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="white"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <circle cx="5.5" cy="17" r="3.5" />
-        <circle cx="18.5" cy="17" r="3.5" />
-        <path d="M15 6a1 1 0 100-2 1 1 0 000 2z" fill="white" stroke="none" />
-        <path d="M12 17V13l-3.5-4 4.5-2.5 2.5 4.5h3" />
-      </svg>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Icon: LRT train station marker (purple circle with white train)
-// ---------------------------------------------------------------------------
-
-function TrainStationIcon({ size = 22 }: { size?: number }) {
-  return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        backgroundColor: "#7b1fa2",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        border: "2px solid white",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
-      }}
-    >
-      <svg
-        width={size * 0.55}
-        height={size * 0.55}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="white"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <rect x="4" y="3" width="16" height="13" rx="2" fill="white" fillOpacity="0.2" />
-        <line x1="4" y1="11" x2="20" y2="11" />
-        <circle cx="8.5" cy="13.5" r="1" fill="white" stroke="none" />
-        <circle cx="15.5" cy="13.5" r="1" fill="white" stroke="none" />
-        <path d="M9 16l-2 5M15 16l2 5" />
-        <line x1="6" y1="21" x2="18" y2="21" />
-      </svg>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Dock grid — visual representation of bike slots (for rich markers)
-// ---------------------------------------------------------------------------
-
-/** Tiny bike icon for dock grid — shows a filled bike or empty outline */
-function MicroBike({ filled, color }: { filled: boolean; color: string }) {
-  return (
-    <svg
-      width="10"
-      height="9"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={filled ? color : "#d0d0d0"}
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ display: "block" }}
-    >
-      <circle cx="5.5" cy="17" r="3.5" />
-      <circle cx="18.5" cy="17" r="3.5" />
-      <path d="M12 17V13l-3.5-4 4.5-2.5 2.5 4.5h3" />
-    </svg>
-  );
-}
-
-function DockGrid({ bikes, capacity }: { bikes: number; capacity: number }) {
-  const cols = Math.min(10, Math.max(4, Math.ceil(Math.sqrt(capacity * 1.5))));
-  const docks: boolean[] = [];
-  for (let i = 0; i < capacity; i++) docks.push(i < bikes);
-  const color = stationHexColor(bikes, capacity);
-
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: `repeat(${cols}, 1fr)`,
-        gap: "1px",
-        padding: "3px 0 1px",
-      }}
-    >
-      {docks.map((filled, i) => (
-        <MicroBike key={i} filled={filled} color={color} />
-      ))}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Rich station marker — shown at high zoom in designer mode
-// ---------------------------------------------------------------------------
-
-function RichStationMarker({
-  station,
-  isSelected,
-  onClick,
-}: {
-  station: BikeStation;
-  isSelected: boolean;
-  onClick: () => void;
-}) {
-  const pct = station.bikes / Math.max(station.capacity, 1);
-  const color = stationHexColor(station.bikes, station.capacity);
-
-  return (
-    <div
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      style={{
-        backgroundColor: "white",
-        borderRadius: 8,
-        padding: "6px 10px 5px",
-        borderLeft: `3px solid ${color}`,
-        boxShadow: isSelected
-          ? "0 0 0 2px #1a73e8, 0 2px 8px rgba(0,0,0,0.25)"
-          : "0 1px 4px rgba(0,0,0,0.3)",
-        cursor: "grab",
-        minWidth: 72,
-        maxWidth: 160,
-        transition: "box-shadow 0.15s",
-        userSelect: "none" as const,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-          marginBottom: 2,
-        }}
-      >
-        {/* Tiny bike icon */}
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke={color}
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <circle cx="5.5" cy="17" r="3.5" />
-          <circle cx="18.5" cy="17" r="3.5" />
-          <path d="M12 17V13l-3.5-4 4.5-2.5 2.5 4.5h3" />
-        </svg>
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 500,
-            color: "#202124",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            maxWidth: 120,
-            lineHeight: "14px",
-          }}
-        >
-          {station.name}
-        </span>
-      </div>
-      <DockGrid bikes={station.bikes} capacity={station.capacity} />
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-          marginTop: 2,
-        }}
-      >
-        <div
-          style={{
-            flex: 1,
-            height: 3,
-            borderRadius: 1.5,
-            background: "#e0e0e0",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              height: "100%",
-              width: `${pct * 100}%`,
-              background: color,
-              borderRadius: 1.5,
-              transition: "width 0.2s",
-            }}
-          />
-        </div>
-        <span
-          style={{
-            fontSize: 10,
-            color: "#5f6368",
-            whiteSpace: "nowrap",
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          {station.bikes}/{station.capacity}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Factor colors for path visualization
-// ---------------------------------------------------------------------------
-
-const FACTOR_COLORS: Record<string, string> = {
-  lrt: "#7b1fa2",
-  bike_infra: "#00838f",
-  transit: "#0277bd",
-  commercial: "#e65100",
-  education: "#283593",
-  recreation: "#2e7d32",
-  population: "#e53935",
-};
-
-// Non-population factors that have paths (all except population)
-const PATHABLE_FACTORS = new Set(["lrt", "bike_infra", "transit", "commercial", "education", "recreation"]);
-
-function _hexToRgb(hex: string): [number, number, number] {
-  const h = hex.replace("#", "");
-  return [
-    parseInt(h.substring(0, 2), 16),
-    parseInt(h.substring(2, 4), 16),
-    parseInt(h.substring(4, 6), 16),
-  ];
-}
-
-// ---------------------------------------------------------------------------
-// Hex popup card (shown on click — interactive factor rows)
-// ---------------------------------------------------------------------------
-
-function HexPopupContent({
-  h3Id,
-  score,
-  proxFactor,
-  activePathFactor,
-  loadingFactor,
-  onFactorClick,
-}: {
-  h3Id: string;
-  score: HexScore;
-  proxFactor: number;
-  activePathFactor: string | null;
-  loadingFactor: string | null;
-  onFactorClick: (factorKey: string) => void;
-}) {
-  const pct = (n: number) => Math.round(n * 100);
-
-  return (
-    <div className="px-3.5 py-3">
-      <div className="text-[13px] font-semibold mb-1">
-        Suitability: {pct(score.overall)}%
-      </div>
-      <div className="text-[11px] text-[#5f6368] leading-relaxed space-y-0.5">
-        {Object.entries(FACTOR_LABELS).map(([key, label]) => {
-          const fr = score.factors[key];
-          if (!fr) return null;
-          const isPathable = PATHABLE_FACTORS.has(key);
-          const isActive = activePathFactor === key;
-          const isLoading = loadingFactor === key;
-          const color = FACTOR_COLORS[key] ?? "#5f6368";
-
-          return (
-            <div
-              key={key}
-              className={`flex items-center gap-1 rounded px-1 -mx-1 ${
-                isPathable
-                  ? "cursor-pointer hover:bg-[#f1f3f4] transition-colors"
-                  : ""
-              } ${isActive ? "bg-[#e8f0fe]" : ""}`}
-              onClick={isPathable ? () => onFactorClick(key) : undefined}
-              title={isPathable ? `Show route to nearest ${label.toLowerCase()}` : undefined}
-            >
-              {isPathable && (
-                <span className="flex-none w-3 text-center">
-                  {isLoading ? (
-                    <span className="inline-block w-2 h-2 border border-[#9aa0a6] border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <svg
-                      width="10"
-                      height="10"
-                      viewBox="0 0 16 16"
-                      fill={isActive ? color : "#9aa0a6"}
-                      className="inline-block"
-                    >
-                      <path d="M8 0C5.2 0 3 2.2 3 5c0 3.5 5 9.5 5 9.5s5-6 5-9.5C13 2.2 10.8 0 8 0zm0 7c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z" />
-                    </svg>
-                  )}
-                </span>
-              )}
-              <span className={isActive ? "font-medium" : ""}>
-                {label}: {pct(fr.score)}%
-              </span>
-              {fr.extra && (
-                <span className="text-[#9e9e9e] ml-auto text-[10px]">
-                  {fr.extra}
-                </span>
-              )}
-            </div>
-          );
-        })}
-        {proxFactor < 0.99 && (
-          <div className="mt-1 pt-1 border-t border-[#e0e0e0]">
-            Station modifier:{" "}
-            <span
-              className="font-semibold"
-              style={{ color: proxFactor < 0.7 ? "#e53935" : "#fb8c00" }}
-            >
-              ×{proxFactor.toFixed(2)}
-            </span>
-          </div>
-        )}
-      </div>
-      {activePathFactor && (
-        <div className="mt-1.5 pt-1.5 border-t border-[#e0e0e0] text-[10px] text-[#9aa0a6]">
-          Click factor again to hide route
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Station popup card (shown on click)
-// ---------------------------------------------------------------------------
-
-function StationPopupContent({
-  station,
-  designerMode,
-  onDelete,
-}: {
-  station: BikeStation;
-  designerMode: boolean;
-  onDelete?: () => void;
-}) {
-  const pct = station.bikes / Math.max(station.capacity, 1);
-  const color = stationHexColor(station.bikes, station.capacity);
-
-  return (
-    <div className="px-3.5 py-3">
-      <div className="flex items-center gap-2 mb-2 pr-5">
-        <svg
-          width="14" height="14" viewBox="0 0 24 24" fill="none"
-          stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-        >
-          <circle cx="5.5" cy="17" r="3.5" />
-          <circle cx="18.5" cy="17" r="3.5" />
-          <path d="M12 17V13l-3.5-4 4.5-2.5 2.5 4.5h3" />
-        </svg>
-        <span className="text-[13px] font-medium text-[#202124] truncate">
-          {station.name}
-        </span>
-      </div>
-      {/* Stats */}
-      <div className="flex items-center gap-3 text-[11px] text-[#5f6368] mb-2">
-        <span>{station.bikes} bikes</span>
-        <span>{station.capacity - station.bikes} docks free</span>
-        <span>{station.capacity} total</span>
-      </div>
-      {/* Fill bar */}
-      <div className="h-[4px] rounded-full bg-[#e0e0e0] overflow-hidden mb-2">
-        <div
-          className="h-full rounded-full transition-[width] duration-200"
-          style={{ width: `${pct * 100}%`, backgroundColor: color }}
-        />
-      </div>
-      <div className="text-[10px] text-[#9aa0a6] mb-1">
-        ID: {station.id}
-      </div>
-      {/* Delete button (designer mode only) */}
-      {onDelete && (
-        <button
-          onClick={onDelete}
-          className="mt-1 w-full text-[12px] font-medium text-[#d32f2f] bg-[#fde7e7] hover:bg-[#fbc8c8] rounded-md py-1.5 transition-colors"
-        >
-          Delete Station
-        </button>
-      )}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -581,6 +97,7 @@ export default function DeckMap({
   onMapClick,
   onRightClick,
   designerMode = false,
+  isMobile = false,
   selectedStationId,
   onStationClick,
   onDeleteStation,
@@ -599,6 +116,7 @@ export default function DeckMap({
   const lastFlyTs = useRef<number>(0);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [popup, setPopup] = useState<PopupData | null>(null);
+  const [geolocating, setGeolocating] = useState(false);
 
   // Hex path exploration (Dijkstra visualization)
   const [hexPathData, setHexPathData] = useState<GeoJSON.FeatureCollection | null>(null);
@@ -678,11 +196,28 @@ export default function DeckMap({
   useEffect(() => {
     if (flyTo && flyTo._ts !== lastFlyTs.current) {
       lastFlyTs.current = flyTo._ts;
-      setViewState((prev: any) => ({
-        ...prev,
+
+      let target = {
         latitude: flyTo.latitude,
         longitude: flyTo.longitude,
         zoom: flyTo.zoom,
+      };
+
+      if (flyTo.bounds && wrapperRef.current) {
+        const rect = wrapperRef.current.getBoundingClientRect();
+        const pad = flyTo.padding ?? 60;
+        try {
+          const vp = new WebMercatorViewport({
+            width: rect.width,
+            height: rect.height,
+          }).fitBounds(flyTo.bounds, { padding: pad });
+          target = { latitude: vp.latitude, longitude: vp.longitude, zoom: vp.zoom };
+        } catch { /* fall through to explicit lat/lng/zoom */ }
+      }
+
+      setViewState((prev: any) => ({
+        ...prev,
+        ...target,
         pitch: 0,
         bearing: 0,
         transitionDuration: 1200,
@@ -715,6 +250,47 @@ export default function DeckMap({
     },
     [viewState, onRightClick],
   );
+
+  // ---- Long-press for mobile station placement ----
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressCancelled = useRef(false);
+  const LONG_PRESS_MS = 500;
+
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (!onRightClick || !designerMode || !wrapperRef.current) return;
+      if (e.touches.length !== 1) return;
+      longPressCancelled.current = false;
+      const touch = e.touches[0];
+      const sx = touch.clientX;
+      const sy = touch.clientY;
+      longPressTimer.current = setTimeout(() => {
+        if (longPressCancelled.current) return;
+        const rect = wrapperRef.current!.getBoundingClientRect();
+        try {
+          const vp = new WebMercatorViewport({
+            ...viewState,
+            width: rect.width,
+            height: rect.height,
+          });
+          const [lng, lat] = vp.unproject([sx - rect.left, sy - rect.top]);
+          onRightClick({ screenX: sx, screenY: sy, lng, lat });
+        } catch { /* ignore */ }
+      }, LONG_PRESS_MS);
+    },
+    [viewState, onRightClick, designerMode],
+  );
+
+  const cancelLongPress = useCallback(() => {
+    longPressCancelled.current = true;
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  // ---- FAB "place station" mode (mobile designer) ----
+  const [fabPlaceMode, setFabPlaceMode] = useState(false);
 
   // ---- deck.gl layers ----
   const layers = useMemo(() => {
@@ -981,7 +557,7 @@ export default function DeckMap({
     if (hexPathData && hexPathData.features) {
       const pathFactor = (hexPathData as any)?.properties?.factor ?? "";
       const pathColor = FACTOR_COLORS[pathFactor] ?? "#1a73e8";
-      const [r, g, b] = _hexToRgb(pathColor);
+      const [r, g, b] = hexToRgb(pathColor);
 
       const routeFeatures = hexPathData.features.filter(
         (f: any) => f.properties?.type === "route",
@@ -1198,15 +774,28 @@ export default function DeckMap({
         return;
       }
 
-      // Click on empty space → close popup + fire map click
+      // Click on empty space → close popup + fire map click (or FAB place)
       setPopup(null);
       setHexPathData(null);
       setHexPathLoading(null);
-      if (!info.object && info.coordinate && onMapClick) {
-        onMapClick({ lng: info.coordinate[0], lat: info.coordinate[1] });
+      if (!info.object && info.coordinate) {
+        if (fabPlaceMode && onRightClick) {
+          const px = info.pixel?.[0] ?? 0;
+          const py = info.pixel?.[1] ?? 0;
+          const rect = wrapperRef.current?.getBoundingClientRect();
+          onRightClick({
+            screenX: (rect?.left ?? 0) + px,
+            screenY: (rect?.top ?? 0) + py,
+            lng: info.coordinate[0],
+            lat: info.coordinate[1],
+          });
+          setFabPlaceMode(false);
+        } else if (onMapClick) {
+          onMapClick({ lng: info.coordinate[0], lat: info.coordinate[1] });
+        }
       }
     },
-    [onMapClick, onStationClick, designerMode, suitabilityWeights, suitabilityDecayRadii, suitabilityDensityScales, proximityFactors],
+    [onMapClick, onStationClick, onRightClick, designerMode, fabPlaceMode, suitabilityWeights, suitabilityDecayRadii, suitabilityDensityScales, proximityFactors],
   );
 
   return (
@@ -1214,6 +803,10 @@ export default function DeckMap({
       ref={wrapperRef}
       className="relative w-full h-full"
       onContextMenu={handleContextMenu}
+      onTouchStart={handleTouchStart}
+      onTouchMove={cancelLongPress}
+      onTouchEnd={cancelLongPress}
+      onTouchCancel={cancelLongPress}
     >
       <DeckGL
         viewState={viewState}
@@ -1328,13 +921,13 @@ export default function DeckMap({
           style={{ left: popup.x, top: popup.y, transform: "translate(-50%, -100%) translateY(-12px)" }}
         >
           <div
-            className="bg-white rounded-lg shadow-lg border border-[#e0e0e0] min-w-[180px] max-w-[260px] relative"
+            className="bg-[var(--color-surface)] rounded-lg shadow-lg border border-[var(--color-border)] min-w-[180px] max-w-[260px] relative"
             style={{ fontFamily: "Roboto, sans-serif" }}
           >
             {/* Close button */}
             <button
               onClick={() => { setPopup(null); setHexPathData(null); setHexPathLoading(null); }}
-              className="absolute top-1.5 right-1.5 w-5 h-5 flex items-center justify-center rounded-full text-[#9aa0a6] hover:bg-[#f1f3f4] hover:text-[#5f6368] transition-colors"
+              className="absolute top-1.5 right-1.5 w-5 h-5 flex items-center justify-center rounded-full text-[var(--color-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-secondary)] transition-colors"
             >
               <svg width="10" height="10" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <line x1="2" y1="2" x2="10" y2="10" />
@@ -1369,22 +962,59 @@ export default function DeckMap({
           {/* Arrow */}
           <div className="flex justify-center -mt-px">
             <div
-              className="w-3 h-3 bg-white border-r border-b border-[#e0e0e0]"
+              className="w-3 h-3 bg-[var(--color-surface)] border-r border-b border-[var(--color-border)]"
               style={{ transform: "rotate(45deg)", marginTop: -6 }}
             />
           </div>
         </div>
       )}
 
+      {/* Locate me button */}
+      <button
+        onClick={() => {
+          if (!navigator.geolocation || geolocating) return;
+          setGeolocating(true);
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              setViewState((prev: any) => ({
+                ...prev,
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+                zoom: 14,
+                transitionDuration: 1200,
+                transitionInterpolator: new FlyToInterpolator(),
+              }));
+              setGeolocating(false);
+            },
+            () => setGeolocating(false),
+            { enableHighAccuracy: true, timeout: 8000 },
+          );
+        }}
+        className="absolute bottom-6 right-4 z-20 w-10 h-10 bg-[var(--color-surface)] rounded-lg shadow-[var(--shadow-md)] flex items-center justify-center hover:bg-[var(--color-surface-hover)] transition-colors"
+        aria-label="Center on my location"
+        title="My location"
+      >
+        {geolocating ? (
+          <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-secondary)" strokeWidth="2">
+            <path d="M12 2v4m0 12v4m10-10h-4M6 12H2m15.07-5.07-2.83 2.83M9.76 14.24l-2.83 2.83m0-10.14 2.83 2.83m4.48 4.48 2.83 2.83"/>
+          </svg>
+        ) : (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2m0 16v2M2 12h2m16 0h2"/>
+          </svg>
+        )}
+      </button>
+
       {/* Map style switcher */}
-      <div className="absolute bottom-6 left-4 flex gap-1 bg-white rounded-lg p-1 shadow-[var(--shadow-md)]">
+      <div className="absolute bottom-6 left-4 flex gap-1 bg-[var(--color-surface)] rounded-lg p-1 shadow-[var(--shadow-md)]">
         {(Object.keys(MAP_STYLES) as MapStyleKey[]).map((style) => (
           <button
             key={style}
             onClick={() => setMapStyle(style)}
             className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors ${
               mapStyle === style
-                ? "bg-[#e8f0fe] text-[var(--color-blue)]"
+                ? "bg-[var(--color-active-bg)] text-[var(--color-blue)]"
                 : "text-[var(--color-secondary)] hover:bg-[var(--color-surface-hover)]"
             }`}
           >
@@ -1411,7 +1041,33 @@ export default function DeckMap({
           >
             <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
           </svg>
-          Designer Mode — Right-click to add stations
+          {isMobile ? "Long-press to add stations" : "Designer Mode — Right-click to add stations"}
+        </div>
+      )}
+
+      {/* FAB — mobile designer "place station" button */}
+      {designerMode && isMobile && (
+        <button
+          onClick={() => setFabPlaceMode((p) => !p)}
+          className={`absolute bottom-20 right-4 z-30 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all ${
+            fabPlaceMode
+              ? "bg-[var(--color-green)] text-white scale-110 ring-4 ring-[var(--color-green)]/30"
+              : "bg-[var(--color-blue)] text-white"
+          }`}
+          aria-label={fabPlaceMode ? "Cancel placing station" : "Add station"}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {fabPlaceMode ? (
+              <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>
+            ) : (
+              <><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></>
+            )}
+          </svg>
+        </button>
+      )}
+      {fabPlaceMode && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-[var(--color-green)] text-white text-[12px] font-medium px-4 py-1.5 rounded-full shadow-[var(--shadow-md)] pointer-events-none z-30 animate-pulse">
+          Tap the map to place a station
         </div>
       )}
     </div>

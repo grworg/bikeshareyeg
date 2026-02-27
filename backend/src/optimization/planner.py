@@ -26,7 +26,7 @@ import h3
 import numpy as np
 from ortools.sat.python import cp_model
 
-from src.config import settings
+from src.config import settings, city
 
 # ---------------------------------------------------------------------------
 # Shared default constants — kept in one place so API schemas and
@@ -59,19 +59,17 @@ DEFAULT_WEIGHTS: dict[str, float] = {
 }
 
 # ---------------------------------------------------------------------------
-# Constants
+# Constants — derived from city config
 # ---------------------------------------------------------------------------
 
-# Approximate metre-per-degree at Edmonton's latitude (~53.5°N)
-_LAT_M = 111_320.0
-_LNG_M = 111_320.0 * math.cos(math.radians(53.5))
+_LAT_M = city.lat_m
+_LNG_M = city.lng_m
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _OVERLAYS_DIR = _PROJECT_ROOT / "data" / "overlays"
 _OVERPASS_CACHE_DIR = _PROJECT_ROOT / "data" / "overpass_cache"
 
-# Edmonton bounding box (south, west, north, east)
-_BBOX = (53.35, -113.75, 53.70, -113.25)
+_BBOX = city.bbox.as_tuple
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
@@ -101,7 +99,7 @@ def _overpass_query_cached(query: str, max_retries: int = 3) -> dict:
             resp = httpx.post(
                 OVERPASS_URL,
                 data={"data": query.strip()},
-                headers={"User-Agent": "BikeShareYEG/0.1"},
+                headers={"User-Agent": f"{city.app_name}/0.2"},
                 timeout=180,
             )
             resp.raise_for_status()
@@ -383,20 +381,29 @@ class _OverpassProximityFactor(SuitabilityFactor):
         return _decay(dists, self._max_dist_m)
 
 
-_BBOX_STR = f"{_BBOX[0]},{_BBOX[1]},{_BBOX[2]},{_BBOX[3]}"
+def _bbox_str() -> str:
+    """Current city bounding box as an Overpass-compatible string."""
+    return city.bbox.overpass_str
 
 
-class LRTProximityFactor(_OverpassProximityFactor):
-    name = "LRT Station Proximity"
+class RapidTransitProximityFactor(_OverpassProximityFactor):
     key = "lrt"
-    description = "Distance to nearest LRT station"
+    description = "Distance to nearest rapid transit station"
     _max_dist_m = 2000.0
     _extract = "points"
-    _query = f"""
+
+    @property
+    def name(self) -> str:
+        return f"{city.transit.rapid_transit_label} Station Proximity"
+
+    @property
+    def _query(self) -> str:
+        b = _bbox_str()
+        return f"""
 [out:json][timeout:90];
 (
-  node["railway"="station"]["station"="light_rail"]({_BBOX_STR});
-  node["railway"="station"]["station"="subway"]({_BBOX_STR});
+  node["railway"="station"]["station"="light_rail"]({b});
+  node["railway"="station"]["station"="subway"]({b});
 );
 out body;
 """
@@ -409,12 +416,16 @@ class BikeInfraFactor(_OverpassProximityFactor):
     _max_dist_m = 1000.0
     _extract = "line_samples"
     _sample_interval_m = 100.0
-    _query = f"""
+
+    @property
+    def _query(self) -> str:
+        b = _bbox_str()
+        return f"""
 [out:json][timeout:60];
 (
-  way["highway"="cycleway"]({_BBOX_STR});
-  way["highway"="path"]["bicycle"="designated"]({_BBOX_STR});
-  way["cycleway"="track"]["highway"]({_BBOX_STR});
+  way["highway"="cycleway"]({b});
+  way["highway"="path"]["bicycle"="designated"]({b});
+  way["cycleway"="track"]["highway"]({b});
 );
 out geom;
 """
@@ -423,15 +434,19 @@ out geom;
 class TransitAccessFactor(_OverpassProximityFactor):
     name = "Transit Access"
     key = "transit"
-    description = "Distance to nearest transit stop (bus + LRT)"
+    description = "Distance to nearest transit stop (bus + rapid transit)"
     _max_dist_m = 800.0
     _extract = "points"
-    _query = f"""
+
+    @property
+    def _query(self) -> str:
+        b = _bbox_str()
+        return f"""
 [out:json][timeout:60];
 (
-  node["highway"="bus_stop"]({_BBOX_STR});
-  node["public_transport"="stop_position"]["bus"="yes"]({_BBOX_STR});
-  node["railway"="station"]["station"="light_rail"]({_BBOX_STR});
+  node["highway"="bus_stop"]({b});
+  node["public_transport"="stop_position"]["bus"="yes"]({b});
+  node["railway"="station"]["station"="light_rail"]({b});
 );
 out body;
 """
@@ -446,14 +461,18 @@ class CommercialFactor(_OverpassProximityFactor):
     _max_dist_m = 800.0
     _extract = "centers"
     _scoring = "density"
-    _density_scale = 30.0  # 30 POIs within 800m = score 1.0
-    _query = f"""
+    _density_scale = 30.0
+
+    @property
+    def _query(self) -> str:
+        b = _bbox_str()
+        return f"""
 [out:json][timeout:120];
 (
-  node["shop"]({_BBOX_STR});
-  way["shop"]({_BBOX_STR});
-  node["amenity"~"^(restaurant|cafe|fast_food|bar|bank|pharmacy|marketplace|clinic|dentist)$"]({_BBOX_STR});
-  way["amenity"~"^(restaurant|cafe|fast_food|bar|bank|pharmacy|marketplace|clinic|dentist)$"]({_BBOX_STR});
+  node["shop"]({b});
+  way["shop"]({b});
+  node["amenity"~"^(restaurant|cafe|fast_food|bar|bank|pharmacy|marketplace|clinic|dentist)$"]({b});
+  way["amenity"~"^(restaurant|cafe|fast_food|bar|bank|pharmacy|marketplace|clinic|dentist)$"]({b});
 );
 out center;
 """
@@ -468,13 +487,17 @@ class EducationFactor(_OverpassProximityFactor):
     _max_dist_m = 1500.0
     _extract = "centers"
     _scoring = "density"
-    _density_scale = 5.0  # 5 institutions within 1500m = score 1.0
-    _query = f"""
+    _density_scale = 5.0
+
+    @property
+    def _query(self) -> str:
+        b = _bbox_str()
+        return f"""
 [out:json][timeout:60];
 (
-  node["amenity"~"^(university|college|school|library)$"]({_BBOX_STR});
-  way["amenity"~"^(university|college|school|library)$"]({_BBOX_STR});
-  relation["amenity"~"^(university|college|school|library)$"]({_BBOX_STR});
+  node["amenity"~"^(university|college|school|library)$"]({b});
+  way["amenity"~"^(university|college|school|library)$"]({b});
+  relation["amenity"~"^(university|college|school|library)$"]({b});
 );
 out center;
 """
@@ -489,15 +512,19 @@ class RecreationFactor(_OverpassProximityFactor):
     _max_dist_m = 1000.0
     _extract = "centers"
     _scoring = "density"
-    _density_scale = 8.0  # 8 parks/facilities within 1000m = score 1.0
-    _query = f"""
+    _density_scale = 8.0
+
+    @property
+    def _query(self) -> str:
+        b = _bbox_str()
+        return f"""
 [out:json][timeout:90];
 (
-  node["leisure"~"^(park|sports_centre|fitness_centre|swimming_pool|playground)$"]({_BBOX_STR});
-  way["leisure"~"^(park|sports_centre|fitness_centre|swimming_pool|playground)$"]({_BBOX_STR});
-  relation["leisure"="park"]({_BBOX_STR});
-  node["amenity"="community_centre"]({_BBOX_STR});
-  way["amenity"="community_centre"]({_BBOX_STR});
+  node["leisure"~"^(park|sports_centre|fitness_centre|swimming_pool|playground)$"]({b});
+  way["leisure"~"^(park|sports_centre|fitness_centre|swimming_pool|playground)$"]({b});
+  relation["leisure"="park"]({b});
+  node["amenity"="community_centre"]({b});
+  way["amenity"="community_centre"]({b});
 );
 out center;
 """
@@ -535,29 +562,29 @@ class SuitabilityEngine:
     computation with a deprecation warning.
     """
 
-    # Factor metadata — used by the /planner/factors endpoint.
-    # Matches the keys written by the precompute script.
-    FACTOR_META: list[dict[str, str]] = [
-        {"key": "population", "name": "Population Density",
-         "description": "2021 Census population density by Dissemination Area (point-in-polygon)"},
-        {"key": "lrt", "name": "LRT Station Proximity",
-         "description": "Distance to nearest LRT station"},
-        {"key": "bike_infra", "name": "Bike Infrastructure",
-         "description": "Distance to nearest protected bike path"},
-        {"key": "transit", "name": "Transit Access",
-         "description": "Distance to nearest transit stop (bus + LRT)"},
-        {"key": "commercial", "name": "Commercial & Retail",
-         "description": "Density of shops, restaurants, and services within range"},
-        {"key": "education", "name": "Education & Institutional",
-         "description": "Density of schools, universities, colleges, and libraries within range"},
-        {"key": "recreation", "name": "Parks & Recreation",
-         "description": "Density of parks, rec centres, and sports facilities within range"},
-    ]
+    @staticmethod
+    def _build_factor_meta() -> list[dict[str, str]]:
+        label = city.transit.rapid_transit_label
+        return [
+            {"key": "population", "name": "Population Density",
+             "description": "Census population density (point-in-polygon)"},
+            {"key": "lrt", "name": f"{label} Station Proximity",
+             "description": f"Distance to nearest {label} station"},
+            {"key": "bike_infra", "name": "Bike Infrastructure",
+             "description": "Distance to nearest protected bike path"},
+            {"key": "transit", "name": "Transit Access",
+             "description": f"Distance to nearest transit stop (bus + {label})"},
+            {"key": "commercial", "name": "Commercial & Retail",
+             "description": "Density of shops, restaurants, and services within range"},
+            {"key": "education", "name": "Education & Institutional",
+             "description": "Density of schools, universities, colleges, and libraries within range"},
+            {"key": "recreation", "name": "Parks & Recreation",
+             "description": "Density of parks, rec centres, and sports facilities within range"},
+        ]
 
-    # Keep the old factor classes for legacy fallback computation
     FACTOR_CLASSES: list[type[SuitabilityFactor]] = [
         PopulationFactor,
-        LRTProximityFactor,
+        RapidTransitProximityFactor,
         BikeInfraFactor,
         TransitAccessFactor,
         CommercialFactor,
@@ -574,7 +601,7 @@ class SuitabilityEngine:
     @property
     def factors(self) -> list[dict[str, str]]:
         """Factor metadata for the /planner/factors endpoint."""
-        return self.FACTOR_META
+        return self._build_factor_meta()
 
     def compute_hex_grid(self) -> dict:
         """Return GeoJSON FeatureCollection with per-hex factor scores.

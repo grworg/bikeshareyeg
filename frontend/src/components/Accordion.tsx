@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { ChevronRight } from "lucide-react";
 
 interface AccordionProps {
   title: string;
@@ -41,19 +42,11 @@ export default function Accordion({ title, defaultOpen = false, children }: Acco
         onClick={() => setIsOpen(!isOpen)}
         className="w-full flex items-center gap-2 px-5 py-2.5 text-left hover:bg-[var(--color-surface-hover)] transition-colors"
       >
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+        <ChevronRight
+          size={12}
+          strokeWidth={2.5}
           className={`shrink-0 text-[var(--color-secondary)] transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`}
-        >
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
+        />
         <span className="text-[11px] font-medium text-[var(--color-secondary)] uppercase tracking-wider">
           {title}
         </span>

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────
-# BikeShareYEG — Deploy to an existing server
+# Bike-Share Planner — Deploy to an existing server
 #
 # Assumes Docker is already installed (e.g. colocated with another
 # compose stack). This script:
@@ -20,7 +20,7 @@ APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DOMAIN="${1:-bikeshare.grassrootswork.org}"
 
 echo "═══════════════════════════════════════════════════════"
-echo "  BikeShareYEG deploy"
+echo "  Bike-Share Planner deploy"
 echo "═══════════════════════════════════════════════════════"
 
 # ── Preflight checks ────────────────────────────────────────
@@ -56,7 +56,7 @@ echo "════════════════════════�
 echo "  Setup complete!"
 echo "═══════════════════════════════════════════════════════"
 echo ""
-echo "  BikeShareYEG is listening on 127.0.0.1:8443"
+echo "  App is listening on 127.0.0.1:8443"
 echo ""
 echo "  Make sure your host reverse proxy forwards:"
 echo "    ${DOMAIN} → localhost:8443"

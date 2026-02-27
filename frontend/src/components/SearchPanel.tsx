@@ -7,11 +7,12 @@ import {
   useCallback,
   type ChangeEvent,
 } from "react";
-import type { GeocodedPlace, RouteOption, RouteLeg } from "@/lib/types";
-import { fmtDuration, fmtDistance } from "@/lib/types";
+import { Clock, X, MapPin as MapPinIcon, Check } from "lucide-react";
+import type { GeocodedPlace, RouteOption } from "@/lib/types";
 import { geocode } from "@/lib/api";
-import { MODE_CONFIG } from "@/lib/constants";
-import ElevationProfile from "@/components/ElevationProfile";
+import type { RouteModeToggle } from "@/lib/appStore";
+import { MODE_TOGGLE_CONFIG } from "@/lib/routeHelpers";
+import RouteCard from "@/components/RouteCard";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -29,6 +30,8 @@ interface SearchPanelProps {
   isLoading: boolean;
   departureTime: string | null;
   onSetDepartureTime: (time: string | null) => void;
+  routeModeToggles: Record<RouteModeToggle, boolean>;
+  onToggleRouteMode: (key: RouteModeToggle, on: boolean) => void;
   onGetDirections: () => void;
   onFlyToPlace: (place: GeocodedPlace) => void;
 }
@@ -49,6 +52,8 @@ export default function SearchPanel({
   isLoading,
   departureTime,
   onSetDepartureTime,
+  routeModeToggles,
+  onToggleRouteMode,
   onGetDirections,
   onFlyToPlace,
 }: SearchPanelProps) {
@@ -101,42 +106,17 @@ export default function SearchPanel({
         </div>
 
         {/* Departure time picker */}
-        <div className="flex items-center gap-2 px-4 pb-2.5 -mt-0.5">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#5f6368"
-            strokeWidth="2"
-            strokeLinecap="round"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 6v6l4 2" />
-          </svg>
-          <span className="text-[12px] text-[var(--color-secondary)]">Depart</span>
-          <input
-            type="datetime-local"
-            value={departureTime ?? ""}
-            onChange={(e) => onSetDepartureTime(e.target.value || null)}
-            className="text-[12px] text-[var(--color-fg)] bg-transparent border border-[var(--color-border)] rounded px-2 py-1 outline-none focus:border-[var(--color-blue)] transition-colors"
-          />
-          {departureTime && (
-            <button
-              onClick={() => onSetDepartureTime(null)}
-              className="text-[11px] text-[var(--color-blue)] hover:underline"
-            >
-              Now
-            </button>
-          )}
-        </div>
+        <DepartureTimePicker value={departureTime} onChange={onSetDepartureTime} />
+
+        {/* Mode toggles */}
+        <ModeToggles toggles={routeModeToggles} onToggle={onToggleRouteMode} />
 
         {/* Get Directions button */}
         {showGetDirections && (
           <div className="px-4 pb-3 -mt-0.5">
             <button
               onClick={onGetDirections}
-              className="w-full py-2.5 rounded-lg bg-[var(--color-blue)] text-white text-[14px] font-medium hover:bg-[#1765cc] active:bg-[#1558b0] transition-colors shadow-sm"
+              className="w-full py-2.5 rounded-lg bg-[var(--color-blue)] text-white text-[14px] font-medium hover:bg-[var(--color-blue-hover)] active:bg-[var(--color-blue-hover)] transition-colors shadow-sm"
             >
               Get Directions
             </button>
@@ -191,6 +171,132 @@ export default function SearchPanel({
 }
 
 // ---------------------------------------------------------------------------
+// Departure time picker — "Depart now" chip that expands into date/time inputs
+// ---------------------------------------------------------------------------
+
+function localISOString(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatDepartLabel(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const isToday =
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate();
+    const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    if (isToday) return `Today at ${time}`;
+    const date = d.toLocaleDateString([], { month: "short", day: "numeric" });
+    return `${date} at ${time}`;
+  } catch {
+    return iso;
+  }
+}
+
+function DepartureTimePicker({
+  value,
+  onChange,
+}: {
+  value: string | null;
+  onChange: (val: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleChipClick = () => {
+    if (!open) {
+      if (!value) onChange(localISOString(new Date()));
+      setOpen(true);
+    } else {
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div ref={wrapperRef} className="px-4 pb-2.5 -mt-0.5">
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleChipClick}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[12px] font-medium transition-colors border ${
+            value
+              ? "bg-[var(--color-blue)]/8 border-[var(--color-blue)]/25 text-[var(--color-blue)]"
+              : "bg-[var(--color-surface-alt)] border-[var(--color-border)] text-[var(--color-secondary)] hover:bg-[var(--color-surface-hover)]"
+          }`}
+        >
+          <Clock size={13} />
+          {value ? formatDepartLabel(value) : "Depart now"}
+        </button>
+        {value && (
+          <button
+            onClick={() => { onChange(null); setOpen(false); }}
+            className="text-[11px] text-[var(--color-blue)] hover:underline font-medium"
+          >
+            Reset
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            type="datetime-local"
+            value={value ?? ""}
+            onChange={(e) => onChange(e.target.value || null)}
+            className="text-[12px] text-[var(--color-fg)] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-3 py-2 outline-none focus:border-[var(--color-blue)] focus:ring-1 focus:ring-[var(--color-blue)]/20 transition-all shadow-sm"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Mode toggles — pill-style checkboxes for transport modes
+// ---------------------------------------------------------------------------
+
+function ModeToggles({
+  toggles,
+  onToggle,
+}: {
+  toggles: Record<RouteModeToggle, boolean>;
+  onToggle: (key: RouteModeToggle, on: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 px-4 pb-3 flex-wrap">
+      {MODE_TOGGLE_CONFIG.map(({ key, label, icon }) => {
+        const active = toggles[key];
+        return (
+          <button
+            key={key}
+            onClick={() => onToggle(key, !active)}
+            className={`inline-flex items-center gap-1.5 pl-2.5 pr-3 py-2 rounded-full text-[12px] font-medium transition-all border ${
+              active
+                ? "bg-[var(--color-fg)] text-white border-[var(--color-fg)] shadow-sm"
+                : "bg-[var(--color-surface)] text-[var(--color-secondary)] border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]"
+            }`}
+          >
+            {active ? <Check size={12} strokeWidth={2.5} /> : icon}
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // PlaceInput with autocomplete dropdown
 // ---------------------------------------------------------------------------
 
@@ -211,6 +317,7 @@ function PlaceInput({
   const [suggestions, setSuggestions] = useState<GeocodedPlace[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [highlightIdx, setHighlightIdx] = useState(-1);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -246,6 +353,7 @@ function PlaceInput({
       try {
         const results = await geocode(val);
         setSuggestions(results);
+        setHighlightIdx(results.length > 0 ? 0 : -1);
         setShowDropdown(results.length > 0);
       } catch {
         setSuggestions([]);
@@ -265,11 +373,30 @@ function PlaceInput({
 
   const handleClear = useCallback(() => {
     setQuery("");
-    // Use onSelectFromMap (no fly-to) for clears; fall back to onSelect
     (onSelectFromMap ?? onSelect)(null);
     setSuggestions([]);
     setShowDropdown(false);
   }, [onSelect, onSelectFromMap]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (!showDropdown || suggestions.length === 0) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setHighlightIdx((i) => (i + 1) % suggestions.length);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setHighlightIdx((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const idx = highlightIdx >= 0 ? highlightIdx : 0;
+        if (suggestions[idx]) handleSelect(suggestions[idx]);
+      } else if (e.key === "Escape") {
+        setShowDropdown(false);
+      }
+    },
+    [showDropdown, suggestions, highlightIdx, handleSelect],
+  );
 
   return (
     <div ref={wrapperRef} className="relative">
@@ -278,28 +405,27 @@ function PlaceInput({
           type="text"
           value={query}
           onChange={handleChange}
+          onKeyDown={handleKeyDown}
           onFocus={() => {
             setIsFocused(true);
             if (suggestions.length > 0) setShowDropdown(true);
           }}
           onBlur={() => setIsFocused(false)}
           placeholder={placeholder}
-          className="flex-1 h-10 px-3 text-[14px] text-[var(--color-fg)] placeholder:text-[var(--color-secondary)] bg-transparent outline-none"
+          className="flex-1 h-11 px-3 text-[14px] text-[var(--color-fg)] placeholder:text-[var(--color-secondary)] bg-transparent outline-none"
         />
         {query && (
           <button
             onClick={handleClear}
-            className="shrink-0 w-8 h-8 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-hover)] transition-colors"
+            className="shrink-0 w-10 h-10 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-hover)] transition-colors"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5f6368" strokeWidth="2" strokeLinecap="round">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
+            <X size={14} className="text-[var(--color-secondary)]" />
           </button>
         )}
       </div>
 
       {showDropdown && suggestions.length > 0 && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-[var(--shadow-lg)] z-50 overflow-hidden border border-[var(--color-border)]">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-surface)] rounded-lg shadow-[var(--shadow-lg)] z-50 overflow-hidden border border-[var(--color-border)]">
           {suggestions.map((s, i) => {
             const parts = s.label.split(",");
             const primary = parts[0]?.trim() || s.label;
@@ -309,11 +435,12 @@ function PlaceInput({
                 key={`${s.lat}-${s.lng}-${i}`}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => handleSelect(s)}
-                className="w-full text-left px-4 py-2.5 hover:bg-[var(--color-surface-hover)] transition-colors flex items-start gap-3"
+                onMouseEnter={() => setHighlightIdx(i)}
+                className={`w-full text-left px-4 py-3 transition-colors flex items-start gap-3 ${
+                  i === highlightIdx ? "bg-[var(--color-surface-hover)]" : "hover:bg-[var(--color-surface-hover)]"
+                }`}
               >
-                <svg className="shrink-0 mt-0.5" width="16" height="16" viewBox="0 0 24 24" fill="#5f6368">
-                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-                </svg>
+                <MapPinIcon size={16} className="shrink-0 mt-0.5 text-[var(--color-secondary)]" />
                 <div className="min-w-0">
                   <div className="text-[13px] text-[var(--color-fg)] truncate">{primary}</div>
                   {secondary && <div className="text-[11px] text-[var(--color-secondary)] truncate">{secondary}</div>}
@@ -327,215 +454,3 @@ function PlaceInput({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Leg color + label helpers
-// ---------------------------------------------------------------------------
-
-function legColor(leg: RouteLeg, routeMode: string): string {
-  if (leg.mode === "lrt") return leg.transit_color ? `#${leg.transit_color}` : "#7b1fa2";
-  if (leg.mode === "bus") return leg.transit_color ? `#${leg.transit_color}` : "#0b8043";
-  if (leg.mode === "wait") return "#d0d0d0";
-  if (leg.mode === "bike" && (routeMode === "bikeshare" || routeMode === "transit_bike")) return "#1a73e8";
-  if (leg.mode === "bike") return "#34a853";
-  return "#646464"; // walk
-}
-
-function legLabel(leg: RouteLeg): string {
-  if (leg.mode === "lrt") return leg.transit_route || "LRT";
-  if (leg.mode === "bus") return leg.transit_route || "Bus";
-  if (leg.mode === "wait") return "Wait";
-  if (leg.mode === "bike") return "Bike";
-  return "Walk";
-}
-
-function legIcon(leg: RouteLeg): string {
-  if (leg.mode === "lrt") return "🚈";
-  if (leg.mode === "bus") return "🚍";
-  if (leg.mode === "bike") return "🚲";
-  if (leg.mode === "walk") return "🚶";
-  return "⏱";
-}
-
-// ---------------------------------------------------------------------------
-// RouteCard
-// ---------------------------------------------------------------------------
-
-function RouteCard({
-  route,
-  isSelected,
-  onClick,
-}: {
-  route: RouteOption;
-  isSelected: boolean;
-  onClick: () => void;
-}) {
-  const cfg = MODE_CONFIG[route.mode] || MODE_CONFIG.walk;
-  const duration = fmtDuration(route.total_duration_s);
-  const distance = fmtDistance(route.total_distance_m);
-  const hasTransit = route.legs.some((l) => l.mode === "lrt" || l.mode === "bus");
-
-  return (
-    <button
-      onClick={onClick}
-      className={`w-full text-left px-4 py-3 border-b border-[var(--color-border)] last:border-b-0 transition-colors ${
-        isSelected
-          ? "bg-[#e8f0fe] border-l-[3px] border-l-[var(--color-blue)]"
-          : "hover:bg-[var(--color-surface-hover)] border-l-[3px] border-l-transparent"
-      }`}
-    >
-      {/* Header row */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-[16px]">{cfg.icon}</span>
-          <span className="text-[13px] font-medium" style={{ color: cfg.color }}>
-            {cfg.label}
-          </span>
-        </div>
-        <div className="text-right">
-          <span className="text-[15px] font-medium text-[var(--color-fg)]">{duration}</span>
-          {/* Show departure → arrival time for transit routes */}
-          {route.departure_time && route.arrival_time && (
-            <div className="text-[11px] text-[var(--color-secondary)]">
-              {route.departure_time} → {route.arrival_time}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Metrics row */}
-      <div className="mt-1 flex items-center gap-3 text-[12px] text-[var(--color-secondary)]">
-        <span>{distance}</span>
-        {route.walk_distance_m > 0 && route.mode !== "walk" && (
-          <span>· {fmtDistance(route.walk_distance_m)} walking</span>
-        )}
-        {route.total_ascent_m != null && (
-          <span className="ml-auto flex items-center gap-1.5 text-[11px]">
-            <span className="flex items-center gap-0.5">
-              <svg width="8" height="8" viewBox="0 0 10 10"><path d="M5 1L9 9H1Z" fill="#34a853" /></svg>
-              {Math.round(route.total_ascent_m)}m
-            </span>
-            <span className="flex items-center gap-0.5">
-              <svg width="8" height="8" viewBox="0 0 10 10"><path d="M5 9L9 1H1Z" fill="#ea4335" /></svg>
-              {Math.round(route.total_descent_m ?? 0)}m
-            </span>
-          </span>
-        )}
-      </div>
-
-      {/* Leg progress bar */}
-      {route.legs.length > 1 && (
-        <div className="mt-2 flex items-center gap-1">
-          {route.legs
-            .filter((l) => l.mode !== "wait")
-            .map((leg, i) => {
-              const w = Math.max(15, (leg.duration_s / route.total_duration_s) * 100);
-              return (
-                <div
-                  key={i}
-                  className="h-1.5 rounded-full"
-                  style={{
-                    width: `${w}%`,
-                    backgroundColor: legColor(leg, route.mode),
-                    opacity: leg.mode === "walk" ? 0.4 : 1,
-                  }}
-                  title={`${legLabel(leg)}: ${fmtDuration(leg.duration_s)}`}
-                />
-              );
-            })}
-        </div>
-      )}
-
-      {/* Transit details (bus/LRT legs) */}
-      {hasTransit && (
-        <div className="mt-2 space-y-1">
-          {route.legs.map((leg, i) => {
-            if (leg.mode === "lrt" || leg.mode === "bus") {
-              const color = leg.transit_color ? `#${leg.transit_color}` : (leg.mode === "bus" ? "#0b8043" : "#7b1fa2");
-              return (
-                <div
-                  key={i}
-                  className="flex items-center gap-2 text-[11px]"
-                >
-                  <div
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{ backgroundColor: color }}
-                  />
-                  <span className="text-[12px]">{legIcon(leg)}</span>
-                  <span className="font-medium" style={{ color }}>
-                    {leg.transit_route || (leg.mode === "bus" ? "Bus" : "LRT")}
-                  </span>
-                  <span className="text-[var(--color-secondary)]">
-                    {leg.transit_board_stop}
-                  </span>
-                  <span className="text-[var(--color-secondary)]">
-                    {leg.transit_board_time}
-                  </span>
-                  <span className="text-[var(--color-secondary)]">→</span>
-                  <span className="text-[var(--color-secondary)]">
-                    {leg.transit_alight_stop}
-                  </span>
-                  <span className="text-[var(--color-secondary)]">
-                    {leg.transit_alight_time}
-                  </span>
-                  {leg.transit_num_stops && (
-                    <span className="text-[var(--color-secondary)] ml-auto">
-                      {leg.transit_num_stops} stops
-                    </span>
-                  )}
-                </div>
-              );
-            }
-            if (leg.mode === "wait" && leg.wait_until) {
-              return (
-                <div key={i} className="text-[11px] text-[var(--color-secondary)] flex items-center gap-2">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#9e9e9e" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M12 6v6l4 2" />
-                  </svg>
-                  Wait until {leg.wait_until} ({fmtDuration(leg.duration_s)})
-                </div>
-              );
-            }
-            return null;
-          })}
-          {/* Headsign / direction info */}
-          {route.legs.filter((l) => l.mode === "lrt" || l.mode === "bus").map((l, i) => (
-            l.transit_headsign && (
-              <div key={`hs-${i}`} className="text-[10px] text-[var(--color-secondary)]">
-                towards {l.transit_headsign}
-              </div>
-            )
-          ))}
-        </div>
-      )}
-
-      {/* Bike share station info */}
-      {route.pickup_station && route.dropoff_station && (
-        <div className="mt-1.5 text-[11px] text-[var(--color-secondary)]">
-          🚲 {route.pickup_station.name} → {route.dropoff_station.name}
-        </div>
-      )}
-      {route.pickup_station && !route.dropoff_station && (
-        <div className="mt-1.5 text-[11px] text-[var(--color-secondary)]">
-          🚲 from {route.pickup_station.name}
-        </div>
-      )}
-      {!route.pickup_station && route.dropoff_station && (
-        <div className="mt-1.5 text-[11px] text-[var(--color-secondary)]">
-          🚲 to {route.dropoff_station.name}
-        </div>
-      )}
-
-      {/* Elevation profile chart — only for the selected route */}
-      {isSelected && route.elevation_profile && route.elevation_profile.length >= 2 && (
-        <ElevationProfile
-          profile={route.elevation_profile}
-          totalAscent={route.total_ascent_m}
-          totalDescent={route.total_descent_m}
-          height={90}
-          color={cfg.color}
-        />
-      )}
-    </button>
-  );
-}

@@ -1,5 +1,5 @@
 /**
- * API client for the BikeShareYEG backend.
+ * API client for the bike-share backend.
  */
 
 import type {
@@ -17,6 +17,7 @@ import type {
   SavedNetwork,
   SharedNetworkResponse,
 } from "./types";
+import { cityConfig } from "./cityConfig";
 
 const API_BASE = "/api";
 
@@ -55,17 +56,82 @@ async function fetchJSON<T = unknown>(
 }
 
 // ---------------------------------------------------------------------------
-// Geocoding
+// Geocoding — calls Photon (Komoot) directly from the browser.
+// Bypasses the backend so Docker networking constraints don't matter.
 // ---------------------------------------------------------------------------
 
+const PHOTON_URL = "https://photon.komoot.io/api/";
+const PHOTON_REVERSE_URL = "https://photon.komoot.io/reverse";
+const CITY_LAT = cityConfig.center.lat;
+const CITY_LNG = cityConfig.center.lng;
+const CITY_BBOX = {
+  minLat: cityConfig.bbox.south - 0.04,
+  maxLat: cityConfig.bbox.north + 0.02,
+  minLng: cityConfig.bbox.west + 0.04,
+  maxLng: cityConfig.bbox.east + 0.02,
+};
+
+function buildLabel(props: Record<string, string | undefined>): string {
+  const parts: string[] = [];
+  const name = props.name;
+  const housenumber = props.housenumber;
+  const street = props.street;
+
+  if (name) parts.push(name);
+  if (housenumber && street) {
+    const addr = `${housenumber} ${street}`;
+    if (addr !== name) parts.push(addr);
+  } else if (street && street !== name) {
+    parts.push(street);
+  }
+  const city = props.city;
+  if (city && !parts.includes(city)) parts.push(city);
+  const state = props.state;
+  if (state) parts.push(state);
+  return parts.length > 0 ? parts.join(", ") : "Unknown location";
+}
+
 export async function geocode(query: string, limit = 5): Promise<GeocodedPlace[]> {
-  const params = new URLSearchParams({ q: query, limit: String(limit) });
-  return fetchJSON<GeocodedPlace[]>(`/geocode?${params}`);
+  const params = new URLSearchParams({
+    q: query,
+    lat: String(CITY_LAT),
+    lon: String(CITY_LNG),
+    limit: String(limit + 5),
+    lang: "en",
+  });
+  const resp = await fetch(`${PHOTON_URL}?${params}`, {
+    headers: { "User-Agent": "BikeShare/0.2" },
+  });
+  if (!resp.ok) throw new Error(`Geocode failed: ${resp.status}`);
+  const data = await resp.json();
+
+  const results: GeocodedPlace[] = [];
+  for (const feat of data.features ?? []) {
+    const coords: number[] = feat.geometry?.coordinates ?? [];
+    if (coords.length < 2) continue;
+    const [lng, lat] = coords;
+    if (lat < CITY_BBOX.minLat || lat > CITY_BBOX.maxLat ||
+        lng < CITY_BBOX.minLng || lng > CITY_BBOX.maxLng) continue;
+    results.push({ label: buildLabel(feat.properties ?? {}), lat, lng });
+    if (results.length >= limit) break;
+  }
+  return results;
 }
 
 export async function reverseGeocode(lat: number, lng: number): Promise<GeocodedPlace> {
-  const params = new URLSearchParams({ lat: String(lat), lng: String(lng) });
-  return fetchJSON<GeocodedPlace>(`/geocode/reverse?${params}`);
+  try {
+    const params = new URLSearchParams({ lat: String(lat), lon: String(lng) });
+    const resp = await fetch(`${PHOTON_REVERSE_URL}?${params}`, {
+      headers: { "User-Agent": "BikeShare/0.2" },
+    });
+    if (!resp.ok) throw new Error(`Reverse geocode failed: ${resp.status}`);
+    const data = await resp.json();
+    const features = data.features ?? [];
+    if (features.length > 0) {
+      return { label: buildLabel(features[0].properties ?? {}), lat, lng };
+    }
+  } catch { /* fall through to coordinate label */ }
+  return { label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, lat, lng };
 }
 
 // ---------------------------------------------------------------------------
@@ -113,9 +179,11 @@ export async function computeRoutes(
   destination: LatLng,
   modes: TravelMode[] = ["walk", "bike", "bikeshare", "transit", "transit_bike"],
   departureTime?: string | null,
+  stations?: { id: string; name: string; lat: number; lng: number; bikes: number; capacity: number }[],
 ): Promise<RoutesResult> {
   const body: Record<string, unknown> = { origin, destination, modes };
   if (departureTime) body.departure_time = departureTime;
+  if (stations) body.stations = stations;
   const data = await fetchJSON<{ routes: RouteOption[]; notices?: string[] }>("/routes", {
     method: "POST",
     body: JSON.stringify(body),
@@ -133,7 +201,7 @@ const overlayMemCache: Partial<Record<OverlayKey, GeoJSON.FeatureCollection>> = 
 
 function _overlayStorageKey(key: OverlayKey): string {
   // v2: DA-level population density (was neighbourhood-level in v1)
-  return `bikeshareyeg_overlay_v2_${key}`;
+  return `${cityConfig.shortCode.toLowerCase()}_overlay_v2_${key}`;
 }
 
 function _readOverlayFromStorage(key: OverlayKey): GeoJSON.FeatureCollection | null {

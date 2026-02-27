@@ -1,5 +1,5 @@
 """
-FastAPI application — serves geocoding, routing, station data, and optimisation.
+FastAPI application — serves routing, station data, and optimisation.
 
 Production hardening:
   - Per-session station state (cookie-based, LRU-evicted)
@@ -19,14 +19,13 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from pydantic import BaseModel, Field, field_validator
 
-from src.api.geocode import router as geocode_router
 from src.api.routing import router as routing_router
 from src.api.overlays import router as overlays_router
 from src.api.elevation import router as elevation_router
 from src.api.planner import router as planner_router
 from src.api.planner_paths import router as planner_paths_router
 from src.api.networks import router as networks_router
-from src.config import settings, EDMONTON_CENTER
+from src.config import settings, city
 from src.data.stations import get_stations, set_stations, reset_stations, clear_stations, create_session
 
 # ---------------------------------------------------------------------------
@@ -40,8 +39,8 @@ limiter = Limiter(key_func=get_remote_address)
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
-    title="BikeShareYEG API",
-    description="Bike-sharing network planning & routing API for Edmonton, AB",
+    title=f"{city.app_name} API",
+    description=city.description,
     version="0.2.0",
     docs_url="/docs" if settings.debug else None,
     redoc_url="/redoc" if settings.debug else None,
@@ -101,7 +100,6 @@ def _is_valid_hex(s: str) -> bool:
 # Mount sub-routers
 # ---------------------------------------------------------------------------
 
-app.include_router(geocode_router)
 app.include_router(routing_router)
 app.include_router(overlays_router)
 app.include_router(elevation_router)
@@ -143,7 +141,7 @@ async def root():
     return {
         "app": settings.app_name,
         "version": "0.2.0",
-        "center": {"lat": EDMONTON_CENTER[0], "lng": EDMONTON_CENTER[1]},
+        "center": {"lat": city.center.lat, "lng": city.center.lng},
     }
 
 
@@ -160,8 +158,8 @@ class StationInput(BaseModel):
     """Schema for a single station in the PUT body."""
     id: str = Field(..., max_length=100)
     name: str = Field("", max_length=200)
-    lat: float = Field(..., ge=50.0, le=60.0)
-    lng: float = Field(..., ge=-120.0, le=-108.0)
+    lat: float = Field(..., ge=-90.0, le=90.0)
+    lng: float = Field(..., ge=-180.0, le=180.0)
     capacity: int = Field(20, ge=1, le=200)
     bikes: int = Field(10, ge=0)
 

@@ -14,19 +14,20 @@ import type {
   PlannerDecayRadii,
   PlannerDensityScales,
 } from "@/lib/types";
+import { cityConfig } from "@/lib/cityConfig";
 
 // ---------------------------------------------------------------------------
 // Constants (also used by PlannerControls for labels / defaults)
 // ---------------------------------------------------------------------------
 
 export const FACTOR_LABELS: Record<string, string> = {
-  population: "Population",
-  commercial: "Commercial",
-  education: "Education",
-  recreation: "Recreation",
-  lrt: "LRT",
-  bike_infra: "Bike infra",
-  transit: "Transit",
+  population: cityConfig.factorLabels.population,
+  commercial: cityConfig.factorLabels.commercial,
+  education: cityConfig.factorLabels.education,
+  recreation: cityConfig.factorLabels.recreation,
+  lrt: cityConfig.factorLabels.lrt,
+  bike_infra: cityConfig.factorLabels.bike_infra,
+  transit: cityConfig.factorLabels.transit,
 };
 
 /**

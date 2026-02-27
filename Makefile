@@ -1,4 +1,4 @@
-# BikeShareYEG — Project Commands
+# Bike-Share Planner — Project Commands
 # ════════════════════════════════════════════════════════════════
 #
 # Development:
@@ -26,7 +26,7 @@
 .PHONY: dev dev-otp install lint format \
         deploy deploy-quick deploy-data \
         up down logs \
-        overlays hexgrid otp-graph help
+        overlays hexgrid otp-graph city-config city-init help
 
 # ── Development ──────────────────────────────────────────────
 
@@ -81,6 +81,14 @@ hexgrid:  ## Precompute suitability hex grid (run before deploy)
 
 otp-graph:  ## Build OTP routing graph (downloads OSM + GTFS data)
 	@bash scripts/setup-otp.sh
+
+city-config:  ## Regenerate frontend city config + manifest from cities/*.yaml
+	cd backend && .venv/bin/python ../scripts/generate-frontend-city-config.py
+
+city-init:  ## Bootstrap a city: generate frontend config, OTP build-config, etc. (BIKESHARE_CITY=city_code)
+	@echo "Generating frontend city config + manifest..."
+	cd backend && .venv/bin/python ../scripts/generate-frontend-city-config.py
+	@echo "Done. Run 'make otp-graph' to build the OTP routing graph."
 
 # ── Help ─────────────────────────────────────────────────────
 

@@ -1,11 +1,11 @@
 """
-Edmonton LRT schedule from GTFS data.
+Rapid transit schedule from GTFS data.
 
-Parses the GTFS feed (downloaded to data/gtfs/) and provides:
- - LRT stop locations and metadata
+Parses the GTFS feed and provides:
+ - Rapid transit stop locations and metadata
  - Trip timetables per line/direction
  - Query: next departure from a stop after a given time
- - Query: journey between two LRT stops (with transfers if needed)
+ - Query: journey between two stops (with transfers if needed)
 
 The GTFS data is loaded once at import time and cached in-memory.
 """
@@ -23,12 +23,17 @@ from io import TextIOWrapper
 from pathlib import Path
 from typing import Iterator
 
+from src.city_loader import load_city_config
+
 # ---------------------------------------------------------------------------
 # Path to GTFS data
 # ---------------------------------------------------------------------------
 
-_DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "gtfs"
-_GTFS_ZIP = _DATA_DIR / "gtfs.zip"
+_city = load_city_config()
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_GTFS_ZIP = _PROJECT_ROOT / _city.transit.gtfs_path
+_RAPID_TRANSIT_ROUTE_TYPES = {str(rt) for rt in _city.transit.rapid_transit_route_types}
+_RAPID_TRANSIT_DEFAULT_COLOR = _city.transit.rapid_transit_color.lstrip("#")
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -140,22 +145,22 @@ def load() -> None:
         return
 
     if not _GTFS_ZIP.exists():
-        print(f"[GTFS] Warning: {_GTFS_ZIP} not found — LRT routing disabled")
+        print(f"[GTFS] Warning: {_GTFS_ZIP} not found — rapid transit routing disabled")
         _loaded = True
         return
 
-    print(f"[GTFS] Loading LRT schedule from {_GTFS_ZIP} ...")
+    print(f"[GTFS] Loading rapid transit schedule from {_GTFS_ZIP} ...")
+    print(f"[GTFS] Route types: {_RAPID_TRANSIT_ROUTE_TYPES}")
 
     with zipfile.ZipFile(_GTFS_ZIP) as zf:
-        # 1. Routes — find LRT (route_type=0)
         lrt_route_ids: set[str] = set()
         for row in _open_csv(zf, "routes.txt"):
-            if row["route_type"] == "0":
+            if row["route_type"] in _RAPID_TRANSIT_ROUTE_TYPES:
                 lrt_route_ids.add(row["route_id"])
                 _lines[row["route_id"]] = LRTLine(
                     route_id=row["route_id"],
                     name=row["route_long_name"] or row["route_short_name"],
-                    color=row.get("route_color", "7b1fa2"),
+                    color=row.get("route_color", _RAPID_TRANSIT_DEFAULT_COLOR),
                 )
 
         # 2. Stops — load ALL stops (we'll filter later)
@@ -239,7 +244,7 @@ def load() -> None:
         _stop_name_to_ids[stop.name].append(stop.stop_id)
 
     print(
-        f"[GTFS] Loaded: {len(_lines)} LRT lines, "
+        f"[GTFS] Loaded: {len(_lines)} rapid transit lines, "
         f"{len(_stops)} stops, {len(_trips)} trips"
     )
     _loaded = True

@@ -1,6 +1,20 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import {
+  MapPin,
+  SkipForward,
+  Zap,
+  Check,
+  TrainFront,
+  Trash2,
+  Move,
+  X,
+  Clock,
+  Play,
+  Pause,
+  ChevronDown,
+} from "lucide-react";
 import type {
   BuildLogEntry,
   BuildLogStep,
@@ -36,46 +50,14 @@ interface ActionMeta {
 }
 
 const ICONS = {
-  manualPlace: (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" /><circle cx="12" cy="10" r="3" />
-    </svg>
-  ),
-  step: (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="5 4 15 12 5 20 5 4" fill="currentColor" /><line x1="19" y1="5" x2="19" y2="19" />
-    </svg>
-  ),
-  generate: (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-    </svg>
-  ),
-  apply: (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 6L9 17l-5-5" />
-    </svg>
-  ),
-  seedLrt: (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="4" y="3" width="16" height="13" rx="2" /><line x1="4" y1="11" x2="20" y2="11" /><path d="M9 16l-2 5M15 16l2 5" />
-    </svg>
-  ),
-  delete: (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" /><path d="M10 11v6M14 11v6" />
-    </svg>
-  ),
-  move: (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3" /><line x1="2" y1="12" x2="22" y2="12" /><line x1="12" y1="2" x2="12" y2="22" />
-    </svg>
-  ),
-  clear: (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  ),
+  manualPlace: <MapPin size={12} />,
+  step: <SkipForward size={12} />,
+  generate: <Zap size={12} />,
+  apply: <Check size={12} strokeWidth={2.5} />,
+  seedLrt: <TrainFront size={12} />,
+  delete: <Trash2 size={12} />,
+  move: <Move size={12} />,
+  clear: <X size={12} />,
 };
 
 function actionMeta(entry: BuildLogEntry): ActionMeta {
@@ -150,7 +132,7 @@ function ParamsDetail({ params }: { params: BuildLogParams }) {
                 <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: FACTOR_COLORS[key] ?? "#9aa0a6" }} />
                 <span className="flex-1 text-[var(--color-fg)] capitalize">{key.replace(/_/g, " ")}</span>
                 <span className="text-[var(--color-fg)] font-medium tabular-nums">{val}</span>
-                <div className="w-16 h-1.5 rounded-full bg-[#e0e0e0] overflow-hidden">
+                <div className="w-16 h-1.5 rounded-full bg-[var(--color-border)] overflow-hidden">
                   <div className="h-full rounded-full" style={{ width: `${val}%`, backgroundColor: FACTOR_COLORS[key] ?? "#9aa0a6" }} />
                 </div>
               </div>
@@ -204,21 +186,13 @@ function ReplayBar({
   onReset: () => void;
 }) {
   return (
-    <div className="flex items-center gap-2 px-4 py-2 bg-[#f8f9fa] border-b border-[var(--color-border)]">
+    <div className="flex items-center gap-2 px-4 py-2 bg-[var(--color-surface-alt)] border-b border-[var(--color-border)]">
       <button
         onClick={isPlaying ? onPause : onPlay}
-        className="w-6 h-6 rounded-full flex items-center justify-center bg-[var(--color-blue)] text-white hover:bg-[#1557b0] transition-colors"
+        className="w-6 h-6 rounded-full flex items-center justify-center bg-[var(--color-blue)] text-white hover:bg-[var(--color-blue-hover)] transition-colors"
         title={isPlaying ? "Pause" : "Play"}
       >
-        {isPlaying ? (
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-            <rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" />
-          </svg>
-        ) : (
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-            <polygon points="5 3 19 12 5 21 5 3" />
-          </svg>
-        )}
+        {isPlaying ? <Pause size={10} /> : <Play size={10} />}
       </button>
       <input
         type="range"
@@ -374,17 +348,11 @@ export default function BuildHistory({ buildLog, stations, onPreviewSnapshot, on
     onRevertToSnapshot(snapshotStations, truncatedLog);
   }, [replayIdx, snapshots, buildLog, onPreviewSnapshot, onRevertToSnapshot, playTimerRef]);
 
-  // Cleanup on unmount
-  // (using useMemo ref pattern to avoid adding effect dep)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-
   if (buildLog.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
-        <div className="w-12 h-12 rounded-full bg-[#f1f3f4] flex items-center justify-center mb-3">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
-          </svg>
+        <div className="w-12 h-12 rounded-full bg-[var(--color-surface-hover)] flex items-center justify-center mb-3">
+          <Clock size={24} className="text-[var(--color-secondary)]" />
         </div>
         <p className="text-[13px] font-medium text-[var(--color-fg)] mb-1">
           No build history yet
@@ -439,7 +407,7 @@ export default function BuildHistory({ buildLog, stations, onPreviewSnapshot, on
       )}
 
       {/* Summary stats */}
-      <div className="px-4 py-2.5 border-b border-[var(--color-border)] bg-white">
+      <div className="px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
         <div className="flex items-center gap-3 text-[11px]">
           <span className="text-[var(--color-fg)] font-medium">{buildLog.length} actions</span>
           <span className="text-[var(--color-secondary)]">{stations.length} stations</span>
@@ -462,7 +430,7 @@ export default function BuildHistory({ buildLog, stations, onPreviewSnapshot, on
           return (
             <div
               key={idx}
-              className={`relative transition-colors ${isHighlighted ? "bg-[#e8f0fe]" : "hover:bg-[var(--color-surface-hover)]"}`}
+              className={`relative transition-colors ${isHighlighted ? "bg-[var(--color-active-bg)]" : "hover:bg-[var(--color-surface-hover)]"}`}
             >
               {/* Timeline line */}
               <div className="absolute left-[23px] top-0 bottom-0 w-px bg-[var(--color-border)]" />
@@ -550,13 +518,10 @@ export default function BuildHistory({ buildLog, stations, onPreviewSnapshot, on
 
                 {/* Expand indicator */}
                 {hasParams && (
-                  <svg
-                    width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6"
-                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                    className={`shrink-0 mt-1 transition-transform duration-150 ${isExpanded ? "rotate-180" : ""}`}
-                  >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
+                  <ChevronDown
+                    size={10}
+                    className={`shrink-0 mt-1 text-[var(--color-secondary)] transition-transform duration-150 ${isExpanded ? "rotate-180" : ""}`}
+                  />
                 )}
               </div>
             </div>

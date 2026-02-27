@@ -1,0 +1,23 @@
+{
+  "name": "BikeShareYEG \u2014 Edmonton Bike-Share Planner",
+  "short_name": "BikeShareYEG",
+  "description": "Design, simulate, and visualize bike-sharing networks for Edmonton, AB",
+  "start_url": "/routing",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a73e8",
+  "icons": [
+    {
+      "src": "/icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

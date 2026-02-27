@@ -32,24 +32,23 @@ import h3
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query
 
-from src.config import settings
+from src.config import settings, city
 
 router = APIRouter(prefix="/api/planner", tags=["planner"])
 
 # ---------------------------------------------------------------------------
-# Paths
+# Paths — derived from city config
 # ---------------------------------------------------------------------------
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-GRAPH_PKL_PATH = PROJECT_ROOT / "data" / "cache" / "edmonton_road_graph_minimal.pkl"
-GRAPH_GRAPHML_PATH = PROJECT_ROOT / "data" / "cache" / "edmonton_road_graph.graphml"
+_code = city.short_code.lower()
+GRAPH_PKL_PATH = PROJECT_ROOT / "data" / "cache" / f"{_code}_road_graph_minimal.pkl"
+GRAPH_GRAPHML_PATH = PROJECT_ROOT / "data" / "cache" / f"{_code}_road_graph.graphml"
 OVERPASS_CACHE_DIR = PROJECT_ROOT / "data" / "overpass_cache"
 
-# Edmonton bounding box
-BBOX = (53.35, -113.75, 53.70, -113.25)
-BBOX_STR = f"{BBOX[0]},{BBOX[1]},{BBOX[2]},{BBOX[3]}"
-LAT_M = 111_320.0
-LNG_M = 111_320.0 * math.cos(math.radians(53.5))
+BBOX_STR = city.bbox.overpass_str
+LAT_M = city.lat_m
+LNG_M = city.lng_m
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +58,7 @@ LNG_M = 111_320.0 * math.cos(math.radians(53.5))
 
 FACTOR_DEFS: dict[str, dict[str, Any]] = {
     "lrt": {
-        "name": "LRT Station",
+        "name": f"{city.transit.rapid_transit_label} Station",
         "extract": "points",
         "max_dist_m": 5000.0,
         "query": f"""
