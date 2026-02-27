@@ -30,8 +30,12 @@ class BboxConfig(BaseModel):
 
     @property
     def overpass_str(self) -> str:
-        """Bounding box formatted for Overpass API queries: south,west,north,east."""
-        return f"{self.south},{self.west},{self.north},{self.east}"
+        """Bounding box formatted for Overpass API queries: south,west,north,east.
+
+        Uses fixed 2-decimal formatting to ensure stable cache keys
+        (Python's default float repr drops trailing zeros).
+        """
+        return f"{self.south:.2f},{self.west:.2f},{self.north:.2f},{self.east:.2f}"
 
     @property
     def as_tuple(self) -> tuple[float, float, float, float]:
