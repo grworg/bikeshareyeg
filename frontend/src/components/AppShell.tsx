@@ -127,7 +127,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         setMobileSidebarOpen((o) => !o);
       } else {
         router.push(targetPath);
-        setMobileSidebarOpen(true);
+        setMobileSidebarOpen(m !== "designer");
       }
     },
     [mode, router, activeNetworkId],

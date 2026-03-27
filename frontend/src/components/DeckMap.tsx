@@ -271,20 +271,6 @@ export default function DeckMap({
   const [longPressIndicator, setLongPressIndicator] = useState<{ x: number; y: number } | null>(null);
   const longPressIndicatorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ---- Mobile drag affordance hint (shown once per session) ----
-  const dragHintShown = useRef(false);
-  const [showDragHint, setShowDragHint] = useState(false);
-
-  useEffect(() => {
-    if (!isMobile || !designerMode || !selectedStationId || dragHintShown.current) {
-      setShowDragHint(false);
-      return;
-    }
-    dragHintShown.current = true;
-    setShowDragHint(true);
-    const t = setTimeout(() => setShowDragHint(false), 2500);
-    return () => clearTimeout(t);
-  }, [isMobile, designerMode, selectedStationId]);
 
   const cancelLongPress = useCallback(() => {
     longPressCancelled.current = true;
@@ -1205,7 +1191,7 @@ export default function DeckMap({
 
       {/* Designer mode indicator */}
       {designerMode && !fabPlaceMode && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-[var(--color-blue)] text-white text-[12px] font-medium px-4 py-1.5 rounded-full shadow-[var(--shadow-md)] flex items-center gap-2 pointer-events-none">
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-[var(--color-blue)] text-white text-[12px] font-medium px-4 py-1.5 rounded-full shadow-[var(--shadow-md)] flex items-center gap-2 pointer-events-none whitespace-nowrap">
           <svg
             width="14"
             height="14"
@@ -1217,7 +1203,7 @@ export default function DeckMap({
           >
             <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
           </svg>
-          {isMobile ? "Long-press or tap + to add stations" : "Designer Mode — Right-click to add stations"}
+          {isMobile ? "Long-press to add stations" : "Designer Mode — Right-click to add stations"}
         </div>
       )}
 
@@ -1229,18 +1215,6 @@ export default function DeckMap({
         >
           <div className="w-12 h-12 -ml-6 -mt-6 rounded-full border-2 border-[var(--color-blue)] opacity-60 animate-ping" />
           <div className="w-6 h-6 -ml-3 -mt-9 rounded-full bg-[var(--color-blue)]/20" />
-        </div>
-      )}
-
-      {/* Mobile drag affordance hint */}
-      {showDragHint && isMobile && designerMode && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 z-40 pointer-events-none animate-[fadeIn_200ms_ease]">
-          <div className="bg-[var(--color-fg)] text-white text-[12px] font-medium px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 whitespace-nowrap opacity-90">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="5 9 2 12 5 15" /><polyline points="9 5 12 2 15 5" /><polyline points="15 19 12 22 9 19" /><polyline points="19 9 22 12 19 15" /><line x1="2" y1="12" x2="22" y2="12" /><line x1="12" y1="2" x2="12" y2="22" />
-            </svg>
-            Hold &amp; drag to move
-          </div>
         </div>
       )}
 

@@ -28,15 +28,15 @@ interface LayerInfo {
 }
 
 export const LAYERS: LayerInfo[] = [
-  { key: "terrain", label: "Terrain (Hillshade)", shortLabel: "Terrain", color: "#6d4c41", icon: <Mountain size={14} /> },
   { key: "lrt", label: "LRT", shortLabel: "LRT", color: "#7b1fa2", icon: <TrainFront size={14} /> },
   { key: "bike", label: "Bike Paths", shortLabel: "Bikes", color: "#00897b", icon: <Bike size={14} /> },
+  { key: "population", label: "Population Density", shortLabel: "Pop.", color: "#d32f2f", icon: <Users size={14} /> },
+  { key: "terrain", label: "Terrain (Hillshade)", shortLabel: "Terrain", color: "#6d4c41", icon: <Mountain size={14} /> },
   { key: "bus", label: "Bus Routes", shortLabel: "Bus", color: "#e65100", icon: <Bus size={14} /> },
   { key: "docks", label: "Bike Share Docks", shortLabel: "Docks", color: "#1a73e8", icon: <CircleDot size={14} /> },
   { key: "commercial", label: "Commercial & Retail", shortLabel: "Shops", color: "#f9a825", icon: <Store size={14} /> },
   { key: "education", label: "Education", shortLabel: "Schools", color: "#5c6bc0", icon: <GraduationCap size={14} /> },
   { key: "recreation", label: "Parks & Recreation", shortLabel: "Parks", color: "#43a047", icon: <TreePine size={14} /> },
-  { key: "population", label: "Population Density", shortLabel: "Pop.", color: "#d32f2f", icon: <Users size={14} /> },
   { key: "motorway", label: "Motorways", shortLabel: "Motorway", color: "#c62828", icon: <Route size={14} /> },
   { key: "trunk", label: "Trunk Roads", shortLabel: "Trunk", color: "#e65100", icon: <Milestone size={14} /> },
   { key: "accessibility", label: "Accessible Areas", shortLabel: "Access", color: "#546e7a", icon: <Map size={14} /> },
@@ -68,7 +68,7 @@ export default function OverlayControls({
 
 function MobileChipBar({ activeOverlays, loadingOverlays, onToggle }: OverlayControlsProps) {
   return (
-    <div className="absolute top-14 left-0 right-0 z-20 pointer-events-auto">
+    <div className="absolute top-[68px] left-0 right-0 z-20 pointer-events-auto">
       <div className="flex gap-2 px-3 overflow-x-auto scrollbar-hide py-1" style={{ WebkitOverflowScrolling: "touch" }}>
         {LAYERS.map((layer) => {
           const active = activeOverlays.has(layer.key);

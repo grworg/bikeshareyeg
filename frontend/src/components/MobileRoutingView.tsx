@@ -17,6 +17,16 @@ import ElevationProfile from "@/components/ElevationProfile";
 
 type Phase = "bar" | "search" | "results" | "viewing";
 
+const EXAMPLE_DESTINATIONS: GeocodedPlace[] = [
+  { label: "University of Alberta, Edmonton", lat: 53.5232, lng: -113.5263 },
+  { label: "West Edmonton Mall, Edmonton", lat: 53.5225, lng: -113.6242 },
+  { label: "Rogers Place, Edmonton", lat: 53.5469, lng: -113.4979 },
+  { label: "Whyte Avenue, Edmonton", lat: 53.5183, lng: -113.4953 },
+  { label: "River Valley, Edmonton", lat: 53.5289, lng: -113.5091 },
+  { label: "NAIT, Edmonton", lat: 53.5688, lng: -113.5049 },
+  { label: "Churchill Square, Edmonton", lat: 53.5444, lng: -113.4909 },
+];
+
 export default function MobileRoutingView() {
   const origin = useAppStore((s) => s.origin);
   const destination = useAppStore((s) => s.destination);
@@ -36,8 +46,9 @@ export default function MobileRoutingView() {
   // Track which field to focus when search opens
   const [focusField, setFocusField] = useState<"dest" | "origin">("dest");
 
-  // Auto-set GPS origin on first mount
+  // Auto-set GPS origin on first mount (without triggering phase change)
   const gpsAttempted = useRef(false);
+  const gpsSettingOrigin = useRef(false);
   useEffect(() => {
     if (gpsAttempted.current || origin) return;
     gpsAttempted.current = true;
@@ -45,6 +56,7 @@ export default function MobileRoutingView() {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         if (useAppStore.getState().origin) return;
+        gpsSettingOrigin.current = true;
         try {
           const place = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
           useAppStore.getState().setOrigin({ ...place, label: `${place.label}` });
@@ -75,7 +87,7 @@ export default function MobileRoutingView() {
     if (isLoadingRoutes && phase === "search") setPhase("results");
   }, [isLoadingRoutes, phase]);
 
-  // When user taps map while in "bar", open search
+  // When user taps map while in "bar", open search (skip GPS auto-set)
   const prevOrigin = useRef(origin);
   const prevDest = useRef(destination);
   useEffect(() => {
@@ -83,6 +95,7 @@ export default function MobileRoutingView() {
     const dChanged = destination !== prevDest.current;
     prevOrigin.current = origin;
     prevDest.current = destination;
+    if (gpsSettingOrigin.current) { gpsSettingOrigin.current = false; return; }
     if (phase === "bar" && (oChanged || dChanged) && (origin || destination)) {
       setFocusField(origin && !destination ? "dest" : "origin");
       setPhase("search");
@@ -137,7 +150,7 @@ export default function MobileRoutingView() {
     return (
       <button
         onClick={() => handleOpenSearch("dest")}
-        className="absolute top-3 left-3 right-14 z-30 flex items-center gap-3 bg-[var(--color-surface)] rounded-full px-4 h-12 shadow-[var(--shadow-md)] active:shadow-[var(--shadow-sm)] transition-shadow"
+        className="absolute top-3 left-3 right-3 z-30 flex items-center gap-3 bg-[var(--color-surface)] rounded-full px-4 h-12 shadow-[var(--shadow-md)] active:shadow-[var(--shadow-sm)] transition-shadow"
       >
         <Search size={18} className="text-[var(--color-secondary)] shrink-0" />
         <span className="flex-1 text-left text-[14px] text-[var(--color-secondary)] truncate">
@@ -292,7 +305,7 @@ export default function MobileRoutingView() {
   return (
     <button
       onClick={() => handleOpenSearch("dest")}
-      className="absolute top-3 left-3 right-14 z-30 flex items-center gap-3 bg-[var(--color-surface)] rounded-full px-4 h-12 shadow-[var(--shadow-md)]"
+      className="absolute top-3 left-3 right-3 z-30 flex items-center gap-3 bg-[var(--color-surface)] rounded-full px-4 h-12 shadow-[var(--shadow-md)]"
     >
       <Search size={18} className="text-[var(--color-secondary)]" />
       <span className="text-[14px] text-[var(--color-secondary)]">Where to?</span>
@@ -454,8 +467,8 @@ function MobileSearchPanel({
           </div>
         </div>
 
-        {/* Mode toggles */}
-        <div className="flex items-center gap-1.5 px-4 pb-2 overflow-x-auto">
+        {/* Mode toggles — left padding aligns with input fields (arrow width + gap) */}
+        <div className="flex items-center gap-1.5 pl-[52px] pr-3 pb-2 overflow-x-auto">
           {MODE_TOGGLE_CONFIG.map(({ key, label, icon }) => {
             const active = routeModeToggles[key];
             return (
@@ -500,18 +513,32 @@ function MobileSearchPanel({
             );
           })
         ) : (
-          <div className="px-6 py-8 text-center">
+          <div className="py-4">
             {canSearch ? (
-              <button
-                onClick={() => useAppStore.getState().getDirections()}
-                className="w-full py-3 rounded-lg bg-[var(--color-blue)] text-white text-[14px] font-medium shadow-sm"
-              >
-                Get Directions
-              </button>
+              <div className="px-6 py-4 text-center">
+                <button
+                  onClick={() => useAppStore.getState().getDirections()}
+                  className="w-full py-3 rounded-lg bg-[var(--color-blue)] text-white text-[14px] font-medium shadow-sm"
+                >
+                  Get Directions
+                </button>
+              </div>
             ) : (
-              <p className="text-[13px] text-[var(--color-secondary)]">
-                {activeField === "dest" ? "Search for a destination" : "Search for a starting point, or use GPS"}
-              </p>
+              <>
+                <p className="px-4 pb-2 text-[11px] font-medium text-[var(--color-secondary)] uppercase tracking-wider">
+                  Popular destinations
+                </p>
+                {EXAMPLE_DESTINATIONS.map((d, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handleSelectSuggestion(d)}
+                    className="w-full text-left px-4 py-2.5 flex items-center gap-3 hover:bg-[var(--color-surface-hover)] active:bg-[var(--color-surface-hover)] transition-colors"
+                  >
+                    <MapPin size={15} className="shrink-0 text-[var(--color-secondary)]" />
+                    <span className="text-[14px] text-[var(--color-fg)]">{d.label.split(",")[0]}</span>
+                  </button>
+                ))}
+              </>
             )}
           </div>
         )}
@@ -542,7 +569,7 @@ function MobileViewingCard({
   const hasElevation = route.elevation_profile && route.elevation_profile.length >= 2;
 
   return (
-    <div className="absolute top-3 left-3 right-14 z-30 bg-[var(--color-surface)] rounded-2xl shadow-[var(--shadow-md)] overflow-hidden">
+    <div className="absolute top-3 left-3 right-3 z-30 bg-[var(--color-surface)] rounded-2xl shadow-[var(--shadow-md)] overflow-hidden">
       <div className="flex items-center gap-3 px-4 py-3">
         <button onClick={onBack} className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-hover)] transition-colors shrink-0">
           <ArrowLeft size={18} className="text-[var(--color-fg)]" />

@@ -291,7 +291,7 @@ export default function AppSidebar() {
         <div className="flex-1 flex flex-col min-h-0">
           <div className="px-5 pt-3 pb-2 border-b border-[var(--color-border)]">
             <p className="text-[12px] text-[var(--color-secondary)]">
-              {isMobile ? "Long-press or tap + to add stations" : "Right-click map to add stations"}
+              {isMobile ? "Long-press to add stations" : "Right-click map to add stations"}
             </p>
             <div className="flex items-center gap-4 mt-1.5 text-[12px]">
               <span className="text-[var(--color-fg)] font-medium">{stations.length} stations</span>
