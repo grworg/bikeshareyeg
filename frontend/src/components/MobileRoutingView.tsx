@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { createElement } from "react";
 import {
   Search, ArrowLeft, X, MapPin, Navigation, Clock,
-  Check, ChevronDown, ChevronUp,
+  Check, ChevronDown, ChevronUp, Footprints, Bike, Bus, TrainFront,
 } from "lucide-react";
 import { useAppStore } from "@/lib/appStore";
 import type { RouteModeToggle } from "@/lib/appStore";
@@ -14,8 +15,17 @@ import { MODE_CONFIG } from "@/lib/constants";
 import { shortLabel, MODE_TOGGLE_CONFIG } from "@/lib/routeHelpers";
 import RouteCard from "@/components/RouteCard";
 import ElevationProfile from "@/components/ElevationProfile";
+import NavigationView from "@/components/NavigationView";
 
-type Phase = "bar" | "search" | "results" | "viewing";
+type Phase = "bar" | "search" | "results" | "viewing" | "navigating";
+
+const LEG_MODE_CONFIG: Record<string, { color: string; icon: React.ReactNode }> = {
+  walk: { color: "#646464", icon: createElement(Footprints, { size: 12 }) },
+  bike: { color: "#34a853", icon: createElement(Bike, { size: 12 }) },
+  bus: { color: "#0b8043", icon: createElement(Bus, { size: 12 }) },
+  lrt: { color: "#7b1fa2", icon: createElement(TrainFront, { size: 12 }) },
+  wait: { color: "#9e9e9e", icon: createElement(Clock, { size: 12 }) },
+};
 
 const EXAMPLE_DESTINATIONS: GeocodedPlace[] = [
   { label: "University of Alberta, Edmonton", lat: 53.5232, lng: -113.5263 },
@@ -267,12 +277,31 @@ export default function MobileRoutingView() {
     );
   }
 
-  // ---- Viewing phase ----
+  // ---- Navigating phase ----
   const selectedRoute = selectedRouteIndex !== null ? routes[selectedRouteIndex] : null;
+  if (phase === "navigating" && selectedRoute) {
+    return (
+      <NavigationView
+        route={selectedRoute}
+        origin={origin}
+        destination={destination}
+        onExit={() => setPhase("viewing")}
+      />
+    );
+  }
+
+  // ---- Viewing phase ----
   if (phase === "viewing" && selectedRoute) {
     return (
       <>
-        <MobileViewingCard route={selectedRoute} origin={origin} destination={destination} onBack={() => setPhase("results")} onClear={() => { useAppStore.getState().clearRoutes(); useAppStore.getState().setOrigin(null); useAppStore.getState().setDestination(null); setPhase("bar"); }} />
+        <MobileViewingCard
+          route={selectedRoute}
+          origin={origin}
+          destination={destination}
+          onBack={() => setPhase("results")}
+          onClear={() => { useAppStore.getState().clearRoutes(); useAppStore.getState().setOrigin(null); useAppStore.getState().setDestination(null); setPhase("bar"); }}
+          onStart={() => setPhase("navigating")}
+        />
         {/* Transparent left-edge swipe zone */}
         <div
           className="absolute top-0 left-0 bottom-0 w-[30px] z-40"
@@ -557,16 +586,19 @@ function MobileViewingCard({
   destination,
   onBack,
   onClear,
+  onStart,
 }: {
   route: import("@/lib/types").RouteOption;
   origin: import("@/lib/types").GeocodedPlace | null;
   destination: import("@/lib/types").GeocodedPlace | null;
   onBack: () => void;
   onClear: () => void;
+  onStart: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const cfg = MODE_CONFIG[route.mode] || MODE_CONFIG.walk;
   const hasElevation = route.elevation_profile && route.elevation_profile.length >= 2;
+  const showStart = route.mode === "walk" || route.mode === "bike" || route.mode === "bikeshare";
 
   return (
     <div className="absolute top-3 left-3 right-3 z-30 bg-[var(--color-surface)] rounded-2xl shadow-[var(--shadow-md)] overflow-hidden">
@@ -589,13 +621,44 @@ function MobileViewingCard({
             {shortLabel(origin?.label ?? "")} &rarr; {shortLabel(destination?.label ?? "")}
           </div>
         </button>
-        <button
-          onClick={onClear}
-          className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-hover)] transition-colors shrink-0"
-        >
-          <X size={16} className="text-[var(--color-secondary)]" />
-        </button>
+        {showStart ? (
+          <button
+            onClick={onStart}
+            className="shrink-0 px-4 py-2 rounded-full text-white text-[13px] font-semibold shadow-sm"
+            style={{ backgroundColor: cfg.color }}
+          >
+            Start
+          </button>
+        ) : (
+          <button
+            onClick={onClear}
+            className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-hover)] transition-colors shrink-0"
+          >
+            <X size={16} className="text-[var(--color-secondary)]" />
+          </button>
+        )}
       </div>
+
+      {/* Leg-by-leg breakdown */}
+      {expanded && route.legs.length > 1 && (
+        <div className="flex items-center gap-1 px-4 pb-2 overflow-x-auto">
+          {route.legs.map((leg, i) => {
+            if (leg.mode === "wait") return null;
+            const legCfg = LEG_MODE_CONFIG[leg.mode];
+            return (
+              <div key={i} className="flex items-center gap-1 shrink-0">
+                {i > 0 && <span className="text-[10px] text-[var(--color-secondary)]">&rsaquo;</span>}
+                <div className="flex items-center gap-1 rounded-full px-2 py-0.5" style={{ background: `${legCfg.color}18` }}>
+                  <span style={{ color: legCfg.color }}>{legCfg.icon}</span>
+                  <span className="text-[11px] font-medium" style={{ color: legCfg.color }}>
+                    {fmtDuration(leg.duration_s)}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {expanded && hasElevation && (
         <div className="px-4 pb-3">

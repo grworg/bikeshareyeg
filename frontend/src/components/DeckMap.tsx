@@ -128,10 +128,19 @@ export default function DeckMap({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [popup, setPopup] = useState<PopupData | null>(null);
   const [geolocating, setGeolocating] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [showRecenter, setShowRecenter] = useState(false);
+  const panCountSinceRoute = useRef(0);
 
   // Hex path exploration (Dijkstra visualization)
   const [hexPathData, setHexPathData] = useState<GeoJSON.FeatureCollection | null>(null);
   const [hexPathLoading, setHexPathLoading] = useState<string | null>(null); // factor key being loaded
+
+  // Reset re-center state when route changes
+  useEffect(() => {
+    panCountSinceRoute.current = 0;
+    setShowRecenter(false);
+  }, [selectedRoute]);
 
   const currentZoom = viewState.zoom ?? INITIAL_VIEW_STATE.zoom;
   const showRichMarkers = designerMode && currentZoom >= 15;
@@ -668,8 +677,37 @@ export default function DeckMap({
       }
     }
 
+    // GPS blue dot
+    if (userLocation) {
+      result.push(
+        new ScatterplotLayer({
+          id: "user-location-ring",
+          data: [userLocation],
+          getPosition: (d: any) => [d.lng, d.lat],
+          getRadius: 60,
+          getFillColor: [66, 133, 244, 40] as [number, number, number, number],
+          radiusMinPixels: 18,
+          radiusMaxPixels: 30,
+          pickable: false,
+        }),
+        new ScatterplotLayer({
+          id: "user-location-dot",
+          data: [userLocation],
+          getPosition: (d: any) => [d.lng, d.lat],
+          getRadius: 30,
+          getFillColor: [66, 133, 244, 255] as [number, number, number, number],
+          radiusMinPixels: 7,
+          radiusMaxPixels: 10,
+          pickable: false,
+          stroked: true,
+          getLineColor: [255, 255, 255, 255] as [number, number, number, number],
+          lineWidthMinPixels: 2.5,
+        }),
+      );
+    }
+
     return result;
-  }, [stations, selectedRoute, designerMode, selectedStationId, overlayData, activeOverlays, showSuitability, suitabilityData, suitabilityWeights, suitabilityDecayRadii, suitabilityDensityScales, proximityFactors, hexPathData]);
+  }, [stations, selectedRoute, designerMode, selectedStationId, overlayData, activeOverlays, showSuitability, suitabilityData, suitabilityWeights, suitabilityDecayRadii, suitabilityDensityScales, proximityFactors, hexPathData, userLocation]);
 
   // ---- Hover tooltip (overlays only — hex & station popups are click-based) ----
   const getTooltip = useCallback(
@@ -873,8 +911,12 @@ export default function DeckMap({
     >
       <DeckGL
         viewState={viewState}
-        onViewStateChange={({ viewState: vs }: any) => {
+        onViewStateChange={({ viewState: vs, interactionState }: any) => {
           setViewState(vs);
+          if (selectedRoute && interactionState?.isDragging) {
+            panCountSinceRoute.current += 1;
+            if (panCountSinceRoute.current > 3 && !showRecenter) setShowRecenter(true);
+          }
           if (popup) {
             setPopup(null);
             // Don't clear hexPathData here — let users pan to see the full path
@@ -1054,6 +1096,50 @@ export default function DeckMap({
         </div>
       )}
 
+      {/* Re-center button (shown when user pans away from route) */}
+      {showRecenter && selectedRoute && !designerMode && (
+        <button
+          onClick={() => {
+            if (!wrapperRef.current || !selectedRoute) return;
+            let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
+            for (const leg of selectedRoute.legs) {
+              for (const c of leg.geometry?.coordinates ?? []) {
+                if (c[1] < minLat) minLat = c[1];
+                if (c[1] > maxLat) maxLat = c[1];
+                if (c[0] < minLng) minLng = c[0];
+                if (c[0] > maxLng) maxLng = c[0];
+              }
+            }
+            const rect = wrapperRef.current.getBoundingClientRect();
+            try {
+              const vp = new WebMercatorViewport({ width: rect.width, height: rect.height })
+                .fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60 });
+              setViewState((prev: any) => ({
+                ...prev,
+                latitude: vp.latitude,
+                longitude: vp.longitude,
+                zoom: vp.zoom,
+                transitionDuration: 800,
+                transitionInterpolator: new FlyToInterpolator(),
+              }));
+            } catch { /* ignore */ }
+            setShowRecenter(false);
+            panCountSinceRoute.current = 0;
+          }}
+          className="absolute z-30 bg-[var(--color-surface)] shadow-[var(--shadow-md)] rounded-full px-4 py-2 text-[13px] font-medium text-[var(--color-blue)] flex items-center gap-1.5"
+          style={{
+            bottom: isMobile ? 80 : 60,
+            left: "50%",
+            transform: "translateX(-50%)",
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2"/>
+          </svg>
+          Re-center
+        </button>
+      )}
+
       {/* ── Mobile bottom card popup ── */}
       <MobileInfoCard
         open={!!popup && isMobile}
@@ -1107,6 +1193,7 @@ export default function DeckMap({
               setGeolocating(true);
               navigator.geolocation.getCurrentPosition(
                 (pos) => {
+                  setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
                   setViewState((prev: any) => ({
                     ...prev,
                     latitude: pos.coords.latitude,
@@ -1143,6 +1230,7 @@ export default function DeckMap({
               setGeolocating(true);
               navigator.geolocation.getCurrentPosition(
                 (pos) => {
+                  setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
                   setViewState((prev: any) => ({
                     ...prev,
                     latitude: pos.coords.latitude,

@@ -29,11 +29,25 @@ export interface BikeStation {
 
 export type TravelMode = "walk" | "bike" | "bikeshare" | "transit" | "transit_bike";
 
+export type InstructionType =
+  | "depart" | "straight" | "left" | "right"
+  | "slight_left" | "slight_right" | "sharp_left" | "sharp_right"
+  | "u_turn" | "arrive";
+
+export interface Instruction {
+  type: InstructionType;
+  text: string;
+  distance_m: number;
+  coord: [number, number]; // [lng, lat]
+  heading: number | null;
+}
+
 export interface RouteLeg {
   mode: "walk" | "bike" | "bus" | "lrt" | "wait";
   geometry: GeoJSON.LineString;
   distance_m: number;
   duration_s: number;
+  instructions?: Instruction[] | null;
   // Transit-specific (bus/lrt — unified fields)
   transit_route?: string | null;
   transit_color?: string | null;

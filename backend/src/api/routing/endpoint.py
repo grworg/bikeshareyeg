@@ -20,6 +20,7 @@ from src.api.routing.transit import (
     compute_transit_bike_gtfs,
 )
 from src.api.routing.enrich import enrich_elevation
+from src.api.routing.instructions import enrich_instructions
 
 router = APIRouter(prefix="/api/routes", tags=["routing"])
 
@@ -101,5 +102,8 @@ async def compute_routes(req: RoutesRequest, request: Request) -> RoutesResponse
     async with httpx.AsyncClient(timeout=EXTERNAL_TIMEOUT) as elev_client:
         elev_tasks = [enrich_elevation(r, elev_client) for r in routes]
         await asyncio.gather(*elev_tasks, return_exceptions=True)
+
+    for r in routes:
+        enrich_instructions(r)
 
     return RoutesResponse(routes=routes, notices=notices)

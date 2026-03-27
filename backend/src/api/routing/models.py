@@ -29,11 +29,22 @@ class RoutesRequest(BaseModel):
     stations: list[StationPayload] | None = None
 
 
+class Instruction(BaseModel):
+    """A single turn-by-turn navigation instruction."""
+    type: str       # "depart" | "straight" | "left" | "right" | "slight_left" | "slight_right"
+                    # "sharp_left" | "sharp_right" | "u_turn" | "arrive"
+    text: str       # Human-readable instruction e.g. "Turn left"
+    distance_m: float       # Distance from route start to this instruction point
+    coord: list[float]      # [lng, lat] of the instruction point
+    heading: float | None = None  # Bearing after this instruction (0-360)
+
+
 class RouteLeg(BaseModel):
     mode: str  # "walk" | "bike" | "bus" | "lrt" | "wait"
     geometry: dict  # GeoJSON LineString
     distance_m: float
     duration_s: float
+    instructions: list[Instruction] | None = None
     transit_route: str | None = None
     transit_color: str | None = None
     transit_headsign: str | None = None
