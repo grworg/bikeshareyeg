@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
-import { Map, Source, Layer } from "react-map-gl/maplibre";
-import { X, Navigation, Compass, Volume2, VolumeX } from "lucide-react";
+import { Map, Marker, Source, Layer } from "react-map-gl/maplibre";
+import { X, Navigation, Compass, LocateFixed } from "lucide-react";
 import type { RouteOption, InstructionType, GeocodedPlace } from "@/lib/types";
 import { fmtDistance } from "@/lib/types";
-import { MAP_STYLES, COLORS, MODE_CONFIG } from "@/lib/constants";
+import { MAP_STYLES, MODE_CONFIG } from "@/lib/constants";
 import {
   flattenRoute,
   snapToRoute,
@@ -13,11 +13,13 @@ import {
   computeProgress,
   splitRouteAtDistance,
   isOffRoute,
-  bearing as calcBearing,
+  smoothGps,
+  routeBearingAt,
   type FlatRoute,
   type SnappedPosition,
   type NextInstruction,
   type NavigationProgress,
+  type SmoothedGps,
 } from "@/lib/routeUtils";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -26,20 +28,23 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // ---------------------------------------------------------------------------
 
 const INSTRUCTION_ICONS: Record<InstructionType, string> = {
-  depart: "M12 2v14m0-14l-4 4m4-4l4 4",       // arrow up
-  straight: "M12 2v20",                          // straight
-  left: "M15 6l-6 6 6 6",                        // arrow left
-  right: "M9 6l6 6-6 6",                         // arrow right
-  slight_left: "M17 4L7 14l6 0",                 // angled left
-  slight_right: "M7 4l10 10-6 0",                // angled right
-  sharp_left: "M17 20L7 4l0 8",                  // sharp left
-  sharp_right: "M7 20L17 4l0 8",                 // sharp right
-  u_turn: "M9 20V8a4 4 0 018 0v1",              // u-turn
-  arrive: "M12 22v-8m-4 4h8M12 2a3 3 0 100 6 3 3 0 000-6z", // pin
+  depart: "M12 2v14m0-14l-4 4m4-4l4 4",
+  straight: "M12 2v20",
+  left: "M15 6l-6 6 6 6",
+  right: "M9 6l6 6-6 6",
+  slight_left: "M17 4L7 14l6 0",
+  slight_right: "M7 4l10 10-6 0",
+  sharp_left: "M17 20L7 4l0 8",
+  sharp_right: "M7 20L17 4l0 8",
+  u_turn: "M9 20V8a4 4 0 018 0v1",
+  arrive: "M12 22v-8m-4 4h8M12 2a3 3 0 100 6 3 3 0 000-6z",
 };
 
+const RECENTER_TIMEOUT_MS = 5000;
+const ARRIVED_THRESHOLD_M = 30;
+
 // ---------------------------------------------------------------------------
-// Component props
+// Component
 // ---------------------------------------------------------------------------
 
 interface NavigationViewProps {
@@ -49,56 +54,57 @@ interface NavigationViewProps {
   onExit: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// Navigation View
-// ---------------------------------------------------------------------------
-
 export default function NavigationView({ route, origin, destination, onExit }: NavigationViewProps) {
   const mapRef = useRef<any>(null);
 
-  // Flatten route once
   const flat = useMemo(() => flattenRoute(route), [route]);
   const modeCfg = MODE_CONFIG[route.mode] || MODE_CONFIG.walk;
+  const routeColor = modeCfg.color;
 
-  // GPS state
-  const [gpsPos, setGpsPos] = useState<{ lat: number; lng: number; speed: number | null; accuracy: number } | null>(null);
+  // GPS + smoothing state
+  const smoothedRef = useRef<SmoothedGps | null>(null);
+  const [gpsPos, setGpsPos] = useState<SmoothedGps | null>(null);
   const [snapped, setSnapped] = useState<SnappedPosition | null>(null);
-  const [heading, setHeading] = useState<number>(0);
-  const [headingUp, setHeadingUp] = useState(true);
-  const [offRoute, setOffRoute] = useState(false);
+  const prevDistRef = useRef(0); // monotonic forward-only distance
 
-  // Nav progress
+  // Compass + route bearing
+  const [compassHeading, setCompassHeading] = useState(0);
+  const [routeHeading, setRouteHeading] = useState(0);
+  const [headingUp, setHeadingUp] = useState(true);
+
+  // Navigation state
+  const [offRoute, setOffRoute] = useState(false);
   const [nextInst, setNextInst] = useState<NextInstruction | null>(null);
   const [progress, setProgress] = useState<NavigationProgress | null>(null);
+  const [arrived, setArrived] = useState(false);
+
+  // User interaction / auto-center pause
+  const [userInteracting, setUserInteracting] = useState(false);
+  const interactionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const watchId = useRef<number | null>(null);
   const orientHandler = useRef<((e: DeviceOrientationEvent) => void) | null>(null);
 
   // ---------------------------------------------------------------------------
-  // Request iOS compass permission & start GPS
+  // Start GPS + compass
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    // GPS
     if ("geolocation" in navigator) {
       watchId.current = navigator.geolocation.watchPosition(
         (pos) => {
-          setGpsPos({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            speed: pos.coords.speed,
-            accuracy: pos.coords.accuracy,
-          });
+          const raw = { lat: pos.coords.latitude, lng: pos.coords.longitude, speed: pos.coords.speed };
+          const smoothed = smoothGps(raw, smoothedRef.current);
+          smoothedRef.current = smoothed;
+          setGpsPos(smoothed);
         },
         () => {},
         { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 },
       );
     }
 
-    // Compass
     const onOrientation = (e: DeviceOrientationEvent) => {
-      // webkitCompassHeading for iOS, alpha for Android
       const h = (e as any).webkitCompassHeading ?? (e.alpha != null ? (360 - e.alpha) % 360 : null);
-      if (h != null) setHeading(h);
+      if (h != null) setCompassHeading(h);
     };
     orientHandler.current = onOrientation;
 
@@ -107,10 +113,8 @@ export default function NavigationView({ route, origin, destination, onExit }: N
       if (typeof DOE.requestPermission === "function") {
         try {
           const perm = await DOE.requestPermission();
-          if (perm === "granted") {
-            window.addEventListener("deviceorientation", onOrientation, true);
-          }
-        } catch { /* user denied */ }
+          if (perm === "granted") window.addEventListener("deviceorientation", onOrientation, true);
+        } catch { /* denied */ }
       } else {
         window.addEventListener("deviceorientation", onOrientation, true);
       }
@@ -119,40 +123,81 @@ export default function NavigationView({ route, origin, destination, onExit }: N
 
     return () => {
       if (watchId.current != null) navigator.geolocation.clearWatch(watchId.current);
-      if (orientHandler.current) {
-        window.removeEventListener("deviceorientation", orientHandler.current, true);
-      }
+      if (orientHandler.current) window.removeEventListener("deviceorientation", orientHandler.current, true);
+      if (interactionTimer.current) clearTimeout(interactionTimer.current);
     };
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Update snapped position, instructions, progress when GPS changes
+  // Update snapped position (forward-only), instructions, progress
   // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!gpsPos) return;
     const snap = snapToRoute(gpsPos.lat, gpsPos.lng, flat);
-    setSnapped(snap);
+
+    // Forward-only: distance can only increase (small backward tolerance of 5m for GPS wobble)
+    const clampedDist = Math.max(prevDistRef.current - 5, snap.distanceAlongRoute);
+    if (clampedDist > prevDistRef.current) prevDistRef.current = clampedDist;
+
+    const finalSnap: SnappedPosition = { ...snap, distanceAlongRoute: prevDistRef.current };
+    setSnapped(finalSnap);
     setOffRoute(isOffRoute(snap.distanceFromRoute));
-    setNextInst(findNextInstruction(snap.distanceAlongRoute, flat.instructions));
-    setProgress(computeProgress(snap.distanceAlongRoute, route, flat));
+    setNextInst(findNextInstruction(prevDistRef.current, flat.instructions));
+    setProgress(computeProgress(prevDistRef.current, route, flat));
+
+    const rBearing = routeBearingAt(flat, prevDistRef.current);
+    setRouteHeading(rBearing);
   }, [gpsPos, flat, route]);
 
   // ---------------------------------------------------------------------------
-  // Center map on GPS position + heading
+  // Auto-center map (paused when user interacts)
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    if (!gpsPos || !mapRef.current) return;
+    if (!snapped || !mapRef.current || userInteracting) return;
     const map = mapRef.current.getMap?.() ?? mapRef.current;
     if (!map) return;
 
+    const mapBearing = headingUp ? routeHeading : 0;
+
     map.easeTo({
-      center: [gpsPos.lng, gpsPos.lat],
-      bearing: headingUp ? heading : 0,
+      center: [snapped.lng, snapped.lat],
+      bearing: mapBearing,
       pitch: headingUp ? 55 : 0,
-      zoom: 17,
-      duration: 600,
+      zoom: headingUp ? 17.5 : 16,
+      duration: 1000,
     });
-  }, [gpsPos, heading, headingUp]);
+  }, [snapped, routeHeading, headingUp, userInteracting]);
+
+  // ---------------------------------------------------------------------------
+  // Arrived detection
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!progress || arrived) return;
+    if (progress.distanceRemaining < ARRIVED_THRESHOLD_M) {
+      setArrived(true);
+      try { navigator.vibrate?.([200, 100, 200]); } catch { /* */ }
+      const t = setTimeout(onExit, 3500);
+      return () => clearTimeout(t);
+    }
+  }, [progress, arrived, onExit]);
+
+  // ---------------------------------------------------------------------------
+  // User interaction handlers (pause auto-center on touch)
+  // ---------------------------------------------------------------------------
+  const handleTouchStart = useCallback(() => {
+    setUserInteracting(true);
+    if (interactionTimer.current) clearTimeout(interactionTimer.current);
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    if (interactionTimer.current) clearTimeout(interactionTimer.current);
+    interactionTimer.current = setTimeout(() => setUserInteracting(false), RECENTER_TIMEOUT_MS);
+  }, []);
+
+  const handleRecenter = useCallback(() => {
+    setUserInteracting(false);
+    if (interactionTimer.current) clearTimeout(interactionTimer.current);
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Route GeoJSON layers
@@ -174,13 +219,21 @@ export default function NavigationView({ route, origin, destination, onExit }: N
     };
   }, [flat, snapped]);
 
+  // Destination coords for marker
+  const destCoord = useMemo(() => {
+    const lastCoord = flat.coords[flat.coords.length - 1];
+    if (destination) return { lat: destination.lat, lng: destination.lng };
+    if (lastCoord) return { lat: lastCoord[1], lng: lastCoord[0] };
+    return null;
+  }, [flat, destination]);
+
   // ---------------------------------------------------------------------------
   // Format helpers
   // ---------------------------------------------------------------------------
   const fmtETA = (d: Date) => d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   const fmtSpeed = (ms: number | null) => {
     if (ms == null || ms < 0.3) return null;
-    return `${(ms * 3.6).toFixed(0)} km/h`;
+    return `${(ms * 3.6).toFixed(0)}`;
   };
   const fmtTimeRemaining = (s: number) => {
     const mins = Math.ceil(s / 60);
@@ -194,26 +247,17 @@ export default function NavigationView({ route, origin, destination, onExit }: N
   // Render
   // ---------------------------------------------------------------------------
   const instructionIcon = nextInst?.instruction.type ?? "straight";
-  const routeColor = modeCfg.color;
+  const fraction = progress?.fraction ?? 0;
+
+  // Compute GPS dot rotation: use route bearing for heading cone
+  const dotRotation = routeHeading;
 
   return (
     <div className="absolute inset-0 z-[60] bg-black flex flex-col">
       {/* ---- Top instruction bar ---- */}
-      <div
-        className="shrink-0 px-4 pb-3 pt-safe flex items-center gap-4"
-        style={{ background: routeColor }}
-      >
+      <div className="shrink-0 px-4 pb-3 pt-safe flex items-center gap-4" style={{ background: routeColor }}>
         <div className="w-14 h-14 flex items-center justify-center">
-          <svg
-            width="36"
-            height="36"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="white"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d={INSTRUCTION_ICONS[instructionIcon]} />
           </svg>
         </div>
@@ -236,29 +280,29 @@ export default function NavigationView({ route, origin, destination, onExit }: N
             </>
           )}
         </div>
-        <button
-          onClick={onExit}
-          className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center"
-        >
+        <button onClick={onExit} className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
           <X size={20} className="text-white" />
         </button>
       </div>
 
       {/* ---- Map ---- */}
-      <div className="flex-1 relative">
+      <div
+        className="flex-1 relative"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         <Map
           ref={mapRef}
           initialViewState={{
             latitude: gpsPos?.lat ?? origin?.lat ?? 53.544,
             longitude: gpsPos?.lng ?? origin?.lng ?? -113.491,
-            zoom: 17,
+            zoom: 17.5,
             pitch: 55,
-            bearing: heading,
+            bearing: routeHeading,
           }}
           mapStyle={MAP_STYLES.streets}
           attributionControl={false}
           dragRotate={false}
-          touchZoomRotate={false}
           style={{ width: "100%", height: "100%" }}
         >
           {/* Completed portion (dimmed) */}
@@ -266,80 +310,100 @@ export default function NavigationView({ route, origin, destination, onExit }: N
             <Layer
               id="route-completed-line"
               type="line"
-              paint={{
-                "line-color": routeColor,
-                "line-width": 6,
-                "line-opacity": 0.3,
-              }}
+              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={{ "line-color": routeColor, "line-width": 8, "line-opacity": 0.25 }}
             />
           </Source>
 
-          {/* Remaining portion (bold) */}
+          {/* Remaining portion (bold with casing) */}
           <Source id="route-remaining" type="geojson" data={remainingGeoJSON as any}>
             <Layer
               id="route-remaining-casing"
               type="line"
-              paint={{
-                "line-color": "#000",
-                "line-width": 10,
-                "line-opacity": 0.15,
-              }}
+              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={{ "line-color": "#000", "line-width": 14, "line-opacity": 0.12 }}
             />
             <Layer
               id="route-remaining-line"
               type="line"
-              paint={{
-                "line-color": routeColor,
-                "line-width": 6,
-                "line-opacity": 1,
-              }}
+              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={{ "line-color": routeColor, "line-width": 8, "line-opacity": 1 }}
             />
           </Source>
+
+          {/* GPS dot as map Marker (moves with map on pan/zoom) */}
+          {snapped && (
+            <Marker latitude={snapped.lat} longitude={snapped.lng} anchor="center">
+              <div style={{ transform: `rotate(${dotRotation}deg)` }}>
+                {/* Heading cone */}
+                <div style={{
+                  position: "absolute",
+                  top: -18,
+                  left: "50%",
+                  marginLeft: -10,
+                  width: 0,
+                  height: 0,
+                  borderLeft: "10px solid transparent",
+                  borderRight: "10px solid transparent",
+                  borderBottom: "24px solid rgba(66,133,244,0.25)",
+                }} />
+              </div>
+              {/* Blue dot with white ring */}
+              <div style={{ width: 22, height: 22, borderRadius: "50%", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 4px rgba(0,0,0,0.3)" }}>
+                <div style={{ width: 14, height: 14, borderRadius: "50%", background: "#4285f4" }} />
+              </div>
+            </Marker>
+          )}
+
+          {/* Destination pin */}
+          {destCoord && (
+            <Marker latitude={destCoord.lat} longitude={destCoord.lng} anchor="bottom">
+              <svg width="28" height="36" viewBox="0 0 28 36" fill="none">
+                <path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.27 21.73 0 14 0z" fill="#d32f2f" />
+                <circle cx="14" cy="14" r="6" fill="white" />
+              </svg>
+            </Marker>
+          )}
         </Map>
 
-        {/* GPS dot overlay */}
-        {gpsPos && (
-          <div
-            className="absolute pointer-events-none z-10"
-            style={{
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-            }}
-          >
-            {/* Heading cone */}
-            <div
-              className="absolute -top-5 left-1/2 -translate-x-1/2"
-              style={{
-                width: 0,
-                height: 0,
-                borderLeft: "8px solid transparent",
-                borderRight: "8px solid transparent",
-                borderBottom: "20px solid rgba(66,133,244,0.3)",
-                transform: "rotate(0deg)",
-              }}
-            />
-            {/* Outer ring */}
-            <div className="w-6 h-6 rounded-full bg-white shadow-lg flex items-center justify-center">
-              <div className="w-4 h-4 rounded-full bg-[#4285f4]" />
-            </div>
-          </div>
-        )}
-
         {/* Off-route warning */}
-        {offRoute && (
+        {offRoute && !arrived && (
           <div className="absolute top-4 left-4 right-4 z-20 bg-[#d32f2f] text-white text-[13px] font-medium px-4 py-2.5 rounded-xl text-center shadow-lg">
             You seem to be off the route
           </div>
         )}
 
-        {/* Speed badge (bottom-left) */}
-        {gpsPos?.speed != null && fmtSpeed(gpsPos.speed) && (
-          <div className="absolute bottom-4 left-4 z-20 bg-white rounded-lg shadow-md px-3 py-1.5">
-            <div className="text-[18px] font-bold text-[var(--color-fg)] leading-tight">
-              {fmtSpeed(gpsPos.speed)}
+        {/* Arrived overlay */}
+        {arrived && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40">
+            <div className="bg-white rounded-2xl px-8 py-6 text-center shadow-xl">
+              <div className="text-[20px] font-bold text-[var(--color-fg)] mb-1">You have arrived</div>
+              <div className="text-[13px] text-[var(--color-secondary)]">
+                {destination ? destination.label.split(",")[0] : "Destination"}
+              </div>
             </div>
           </div>
+        )}
+
+        {/* Speed badge (bottom-left) */}
+        {gpsPos?.speed != null && fmtSpeed(gpsPos.speed) && (
+          <div className="absolute bottom-4 left-4 z-20 bg-white rounded-lg shadow-md w-14 h-14 flex flex-col items-center justify-center">
+            <div className="text-[20px] font-bold text-[var(--color-fg)] leading-none">
+              {fmtSpeed(gpsPos.speed)}
+            </div>
+            <div className="text-[9px] text-[var(--color-secondary)] mt-0.5">km/h</div>
+          </div>
+        )}
+
+        {/* Re-center button (shown when user has panned away) */}
+        {userInteracting && (
+          <button
+            onClick={handleRecenter}
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 bg-white rounded-full shadow-md px-4 py-2 flex items-center gap-1.5 text-[13px] font-medium text-[#4285f4]"
+          >
+            <LocateFixed size={16} />
+            Re-center
+          </button>
         )}
 
         {/* Compass button (bottom-right) */}
@@ -356,27 +420,36 @@ export default function NavigationView({ route, origin, destination, onExit }: N
       </div>
 
       {/* ---- Bottom status bar ---- */}
-      <div className="shrink-0 bg-[var(--color-surface)] px-5 py-3 pb-safe flex items-center justify-between">
-        <div>
-          <div className="text-[22px] font-bold text-[var(--color-fg)]">
-            {progress ? fmtTimeRemaining(progress.durationRemaining) : "--"}
-          </div>
-          <div className="text-[12px] text-[var(--color-secondary)]">
-            {progress ? fmtDistance(progress.distanceRemaining) : ""}
-          </div>
+      <div className="shrink-0 bg-[var(--color-surface)] relative">
+        {/* Progress bar */}
+        <div className="h-[3px] bg-[var(--color-border)]">
+          <div
+            className="h-full transition-[width] duration-1000 ease-linear"
+            style={{ width: `${Math.min(fraction * 100, 100)}%`, backgroundColor: routeColor }}
+          />
         </div>
-        <div className="text-right">
-          <div className="text-[16px] font-semibold text-[var(--color-fg)]">
-            {progress ? fmtETA(progress.eta) : "--:--"}
+        <div className="px-5 py-3 pb-safe flex items-center justify-between">
+          <div>
+            <div className="text-[22px] font-bold text-[var(--color-fg)]">
+              {progress ? fmtTimeRemaining(progress.durationRemaining) : "--"}
+            </div>
+            <div className="text-[12px] text-[var(--color-secondary)]">
+              {progress ? fmtDistance(progress.distanceRemaining) : ""}
+            </div>
           </div>
-          <div className="text-[12px] text-[var(--color-secondary)]">ETA</div>
+          <div className="text-right">
+            <div className="text-[16px] font-semibold text-[var(--color-fg)]">
+              {progress ? fmtETA(progress.eta) : "--:--"}
+            </div>
+            <div className="text-[12px] text-[var(--color-secondary)]">ETA</div>
+          </div>
+          <button
+            onClick={onExit}
+            className="ml-4 px-5 py-2 rounded-full bg-[#d32f2f] text-white text-[14px] font-medium shadow-sm"
+          >
+            Exit
+          </button>
         </div>
-        <button
-          onClick={onExit}
-          className="ml-4 px-5 py-2 rounded-full bg-[#d32f2f] text-white text-[14px] font-medium shadow-sm"
-        >
-          Exit
-        </button>
       </div>
     </div>
   );

@@ -242,3 +242,52 @@ const OFF_ROUTE_THRESHOLD_M = 50;
 export function isOffRoute(distFromRoute: number): boolean {
   return distFromRoute > OFF_ROUTE_THRESHOLD_M;
 }
+
+// ---------------------------------------------------------------------------
+// GPS smoothing (exponential moving average)
+// ---------------------------------------------------------------------------
+
+const EMA_ALPHA = 0.35; // weight of new reading (0 = full smooth, 1 = no smooth)
+const JUMP_THRESHOLD_M = 80; // ignore GPS jumps larger than this
+
+export interface SmoothedGps {
+  lat: number;
+  lng: number;
+  speed: number | null;
+}
+
+export function smoothGps(
+  raw: { lat: number; lng: number; speed: number | null },
+  prev: SmoothedGps | null,
+): SmoothedGps {
+  if (!prev) return { lat: raw.lat, lng: raw.lng, speed: raw.speed };
+
+  const jump = haversineM(prev.lat, prev.lng, raw.lat, raw.lng);
+  if (jump > JUMP_THRESHOLD_M) return prev; // discard outlier
+
+  return {
+    lat: prev.lat + EMA_ALPHA * (raw.lat - prev.lat),
+    lng: prev.lng + EMA_ALPHA * (raw.lng - prev.lng),
+    speed: raw.speed,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Route bearing at a given distance along the route
+// ---------------------------------------------------------------------------
+
+export function routeBearingAt(flat: FlatRoute, distanceAlong: number): number {
+  let idx = 0;
+  for (let i = 0; i < flat.cumDist.length - 1; i++) {
+    if (flat.cumDist[i + 1] >= distanceAlong) {
+      idx = i;
+      break;
+    }
+    idx = i;
+  }
+  const next = Math.min(idx + 1, flat.coords.length - 1);
+  if (idx === next) return 0;
+  const [aLng, aLat] = flat.coords[idx];
+  const [bLng, bLat] = flat.coords[next];
+  return bearing(aLat, aLng, bLat, bLng);
+}
