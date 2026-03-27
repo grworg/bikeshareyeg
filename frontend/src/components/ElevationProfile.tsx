@@ -65,8 +65,8 @@ export default function ElevationProfile({
     };
   }, [profile, height]);
 
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent<SVGSVGElement>) => {
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<SVGSVGElement>) => {
       if (!svgRef.current || profile.length < 2) return;
       const rect = svgRef.current.getBoundingClientRect();
       const x = e.clientX - rect.left;
@@ -135,8 +135,8 @@ export default function ElevationProfile({
           viewBox={`0 0 1000 ${height}`}
           preserveAspectRatio="none"
           className="w-full h-full"
-          onMouseMove={handleMouseMove}
-          onMouseLeave={() => setHover(null)}
+          onPointerMove={handlePointerMove}
+          onPointerLeave={() => setHover(null)}
         >
           {/* Area fill */}
           <path d={areaPath} fill={color} opacity={0.12} />

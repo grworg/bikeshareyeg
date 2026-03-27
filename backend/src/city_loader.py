@@ -65,6 +65,7 @@ class FactorLabelsConfig(BaseModel):
     education: str = "Education"
     recreation: str = "Recreation"
     population: str = "Population"
+    hilliness: str = "Terrain"
 
 
 class CityConfig(BaseModel):

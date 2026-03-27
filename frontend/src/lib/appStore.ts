@@ -177,7 +177,7 @@ export const useAppStore = create<AppStore>()(
       loadActiveOverlays: () => {
         const { activeOverlays, overlayData } = get();
         for (const key of activeOverlays) {
-          if (key === "docks" || key === "accessibility") continue;
+          if (key === "docks" || key === "accessibility" || key === "terrain") continue;
           if (overlayData[key]) continue;
           if (loadingKeys.has(key)) continue;
 

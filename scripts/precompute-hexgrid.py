@@ -585,6 +585,145 @@ def compute_density_factors(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 4b. Hilliness scoring (elevation + slope via Open-Meteo)
+# ═══════════════════════════════════════════════════════════════════════════
+
+OPEN_METEO_URL = "https://api.open-meteo.com/v1/elevation"
+OPEN_METEO_BATCH = 100
+
+
+def query_elevations_batch(
+    lats: np.ndarray, lngs: np.ndarray,
+) -> np.ndarray:
+    """Query elevations from Open-Meteo for all hex centroids.
+
+    Batches requests into groups of 100 (API limit) and caches the
+    combined result to disk so re-runs are free.
+    """
+    import httpx
+
+    cache_path = CACHE_DIR / f"{_city.short_code.lower()}_elevations.npy"
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    if cache_path.exists():
+        elevs = np.load(cache_path)
+        if len(elevs) == len(lats):
+            print(f"  [Elevation] Cache HIT -> {cache_path.name} ({len(elevs):,} points)")
+            return elevs
+        print(f"  [Elevation] Cache size mismatch ({len(elevs)} != {len(lats)}), re-fetching")
+
+    print(f"  [Elevation] Querying Open-Meteo for {len(lats):,} points ...")
+    elevs = np.zeros(len(lats))
+    n_batches = math.ceil(len(lats) / OPEN_METEO_BATCH)
+
+    with httpx.Client(timeout=30.0) as client:
+        for i in range(0, len(lats), OPEN_METEO_BATCH):
+            batch_lats = lats[i : i + OPEN_METEO_BATCH]
+            batch_lngs = lngs[i : i + OPEN_METEO_BATCH]
+            lat_str = ",".join(f"{la:.6f}" for la in batch_lats)
+            lng_str = ",".join(f"{ln:.6f}" for ln in batch_lngs)
+
+            for attempt in range(3):
+                try:
+                    resp = client.get(
+                        OPEN_METEO_URL,
+                        params={"latitude": lat_str, "longitude": lng_str},
+                        headers={"User-Agent": f"{_city.app_name}/0.2"},
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    batch_elevs = data.get("elevation", [])
+                    if isinstance(batch_elevs, (int, float)):
+                        batch_elevs = [batch_elevs]
+                    for j, e in enumerate(batch_elevs):
+                        elevs[i + j] = float(e)
+                    break
+                except Exception as exc:
+                    if attempt < 2:
+                        time.sleep(2 * (attempt + 1))
+                    else:
+                        print(f"  [Elevation] Batch {i // OPEN_METEO_BATCH + 1} failed: {exc}")
+
+            batch_num = i // OPEN_METEO_BATCH + 1
+            if batch_num % 50 == 0 or batch_num == n_batches:
+                print(f"  [Elevation] {batch_num}/{n_batches} batches done")
+
+    np.save(cache_path, elevs)
+    print(f"  [Elevation] Cached -> {cache_path.name}")
+    return elevs
+
+
+def compute_hilliness(
+    hex_ids: list[str],
+    lats: np.ndarray,
+    lngs: np.ndarray,
+    routable: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute per-hex hilliness from elevation differences to H3 neighbours.
+
+    For each hex, queries the elevation of its centroid and its direct H3
+    neighbours, then computes the average absolute slope (%) across all
+    neighbour pairs.
+
+    Returns (hilliness_scores, slope_pct, raw_elevations):
+      - hilliness_scores: 0-1 where 1 = flat, 0 = very steep
+      - slope_pct: average absolute slope in percent
+      - raw_elevations: elevation in metres at each centroid
+    """
+    t0 = time.time()
+    print("\n[Hilliness] Computing terrain hilliness ...")
+
+    elevations = query_elevations_batch(lats, lngs)
+
+    # Build a lookup: hex_id -> index for fast neighbour resolution
+    hex_to_idx = {hid: i for i, hid in enumerate(hex_ids)}
+
+    slope_pct = np.zeros(len(hex_ids))
+
+    for i, hid in enumerate(hex_ids):
+        if not routable[i]:
+            continue
+
+        neighbours = h3.grid_disk(hid, 1) - {hid}
+        n_slopes = []
+        elev_i = elevations[i]
+
+        for nhid in neighbours:
+            j = hex_to_idx.get(nhid)
+            if j is None:
+                continue
+            elev_j = elevations[j]
+            dlat = (lats[j] - lats[i]) * LAT_M
+            dlng = (lngs[j] - lngs[i]) * LNG_M
+            horiz_dist = math.sqrt(dlat * dlat + dlng * dlng)
+            if horiz_dist > 0:
+                n_slopes.append(abs(elev_j - elev_i) / horiz_dist * 100)
+
+        if n_slopes:
+            slope_pct[i] = sum(n_slopes) / len(n_slopes)
+
+    # Score: flat is good (score=1), steep is bad (score→0)
+    # Casual cycling threshold: ~6-8% grade
+    # Use a smooth curve: score = exp(-0.6 * slope_pct)
+    # At 0% slope: score = 1.0
+    # At 2% slope: score = 0.30
+    # At 4% slope: score = 0.09
+    # That's too aggressive. Let's use a gentler curve.
+    # score = 1 / (1 + (slope / 3)^2)  -- sigmoid-like
+    # At 0%: 1.0, at 2%: 0.69, at 4%: 0.36, at 6%: 0.20, at 8%: 0.12
+    hilliness_scores = 1.0 / (1.0 + (slope_pct / 3.0) ** 2)
+    hilliness_scores[~routable] = 0.0
+
+    elapsed = time.time() - t0
+    print(f"  Elevation range: {elevations.min():.0f}m - {elevations.max():.0f}m")
+    print(f"  Slope range: {slope_pct[routable].min():.1f}% - {slope_pct[routable].max():.1f}%")
+    print(f"  Hilliness score: mean={hilliness_scores[routable].mean():.3f}, "
+          f"min={hilliness_scores[routable].min():.3f} ({elapsed:.1f}s)")
+
+    return hilliness_scores, slope_pct, elevations
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 5. Network distance scoring (Phase 2)
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -846,6 +985,9 @@ def build_hexgrid(
     dens_results: dict[str, dict[str, np.ndarray]],
     net_prox_results: dict[str, dict[str, np.ndarray]] | None = None,
     net_dens_results: dict[str, dict[str, np.ndarray]] | None = None,
+    hilliness_scores: np.ndarray | None = None,
+    slope_pct: np.ndarray | None = None,
+    elevations: np.ndarray | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict:
     """Assemble the final GeoJSON FeatureCollection."""
@@ -863,6 +1005,14 @@ def build_hexgrid(
             # Population
             props["population"] = round(float(pop_scores[i]), 4)
             props["population_density"] = round(float(pop_densities[i]), 1)
+
+            # Hilliness (terrain)
+            if hilliness_scores is not None:
+                props["hilliness"] = round(float(hilliness_scores[i]), 4)
+            if slope_pct is not None:
+                props["slope_pct"] = round(float(slope_pct[i]), 2)
+            if elevations is not None:
+                props["elevation_m"] = round(float(elevations[i]), 1)
 
             # Proximity factors (Euclidean)
             for key, data in prox_results.items():
@@ -893,6 +1043,10 @@ def build_hexgrid(
             # Non-routable: zero everything (use null for distances, not Infinity)
             props["population"] = 0.0
             props["population_density"] = 0.0
+            if hilliness_scores is not None:
+                props["hilliness"] = 0.0
+                props["slope_pct"] = 0.0
+                props["elevation_m"] = 0.0
             for key in prox_results:
                 props[key] = 0.0
                 props[f"{key}_dist"] = None
@@ -966,6 +1120,17 @@ def main() -> None:
     for key in dens_results:
         dens_results[key]["score"][~routable] = 0.0
 
+    # 5b. Hilliness (elevation + slope)
+    try:
+        hill_scores, hill_slope, hill_elevs = compute_hilliness(
+            hex_ids, lats, lngs, routable,
+        )
+    except Exception as exc:
+        print(f"\n[Hilliness] WARNING: Hilliness computation failed ({exc})")
+        import traceback
+        traceback.print_exc()
+        hill_scores = hill_slope = hill_elevs = None
+
     # 6. Network distance scoring (unless --skip-network)
     net_prox_results = None
     net_dens_results = None
@@ -1010,6 +1175,12 @@ def main() -> None:
         "description": "2021 Census population density by Dissemination Area",
         "scoring": "sigmoid",
     })
+    if hill_scores is not None:
+        factor_info.append({
+            "key": "hilliness", "name": "Terrain Flatness",
+            "description": "Average slope to H3 neighbours — flat terrain scores highest",
+            "scoring": "direct",
+        })
     for f in DENSITY_FACTORS:
         factor_info.append({
             "key": f["key"], "name": f["name"], "description": f["description"],
@@ -1036,6 +1207,9 @@ def main() -> None:
         prox_results, dens_results,
         net_prox_results=net_prox_results,
         net_dens_results=net_dens_results,
+        hilliness_scores=hill_scores,
+        slope_pct=hill_slope,
+        elevations=hill_elevs,
         metadata=metadata,
     )
 

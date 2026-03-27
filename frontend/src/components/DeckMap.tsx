@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Map, Marker, NavigationControl } from "react-map-gl/maplibre";
+import { Map, Marker, NavigationControl, Source, Layer } from "react-map-gl/maplibre";
 import DeckGL from "@deck.gl/react";
 import { FlyToInterpolator, WebMercatorViewport } from "@deck.gl/core";
 import { GeoJsonLayer, ScatterplotLayer } from "@deck.gl/layers";
@@ -27,6 +27,7 @@ import { getHexPath } from "@/lib/api";
 import { stationHexColor, stationRgba, FACTOR_COLORS, hexToRgb } from "@/components/map/helpers";
 import { PinMarker, BikeStationIcon, TrainStationIcon, RichStationMarker } from "@/components/map/markers";
 import { HexPopupContent, StationPopupContent } from "@/components/map/popups";
+import MobileInfoCard from "@/components/MobileInfoCard";
 
 // ---------------------------------------------------------------------------
 // Exported types
@@ -54,6 +55,7 @@ interface DeckMapProps {
     lng: number;
     lat: number;
   }) => void;
+  onAddStationAt?: (lngLat: { lng: number; lat: number }) => void;
   designerMode?: boolean;
   isMobile?: boolean;
   selectedStationId?: string | null;
@@ -71,6 +73,10 @@ interface DeckMapProps {
   suitabilityDensityScales?: PlannerDensityScales | null;
   suitabilityConfig?: PlannerConfig | null;
   showSuitability?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,6 +102,7 @@ export default function DeckMap({
   flyTo,
   onMapClick,
   onRightClick,
+  onAddStationAt,
   designerMode = false,
   isMobile = false,
   selectedStationId,
@@ -110,6 +117,10 @@ export default function DeckMap({
   suitabilityDensityScales = null,
   suitabilityConfig = null,
   showSuitability = false,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
 }: DeckMapProps) {
   const [viewState, setViewState] = useState<any>(INITIAL_VIEW_STATE);
   const [mapStyle, setMapStyle] = useState<MapStyleKey>("streets");
@@ -254,19 +265,66 @@ export default function DeckMap({
   // ---- Long-press for mobile station placement ----
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressCancelled = useRef(false);
+  const longPressStartPos = useRef<{ x: number; y: number } | null>(null);
   const LONG_PRESS_MS = 500;
+  const LONG_PRESS_MOVE_THRESHOLD = 10; // px — tolerate small finger drift
+  const [longPressIndicator, setLongPressIndicator] = useState<{ x: number; y: number } | null>(null);
+  const longPressIndicatorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ---- Mobile drag affordance hint (shown once per session) ----
+  const dragHintShown = useRef(false);
+  const [showDragHint, setShowDragHint] = useState(false);
+
+  useEffect(() => {
+    if (!isMobile || !designerMode || !selectedStationId || dragHintShown.current) {
+      setShowDragHint(false);
+      return;
+    }
+    dragHintShown.current = true;
+    setShowDragHint(true);
+    const t = setTimeout(() => setShowDragHint(false), 2500);
+    return () => clearTimeout(t);
+  }, [isMobile, designerMode, selectedStationId]);
+
+  const cancelLongPress = useCallback(() => {
+    longPressCancelled.current = true;
+    longPressStartPos.current = null;
+    setLongPressIndicator(null);
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    if (longPressIndicatorTimer.current) {
+      clearTimeout(longPressIndicatorTimer.current);
+      longPressIndicatorTimer.current = null;
+    }
+  }, []);
 
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
-      if (!onRightClick || !designerMode || !wrapperRef.current) return;
+      if (!designerMode || !wrapperRef.current) return;
+      const needsCallback = onAddStationAt || onRightClick;
+      if (!needsCallback) return;
       if (e.touches.length !== 1) return;
       longPressCancelled.current = false;
       const touch = e.touches[0];
       const sx = touch.clientX;
       const sy = touch.clientY;
+      longPressStartPos.current = { x: sx, y: sy };
+
+      // Show visual indicator after 150ms of holding
+      const rect = wrapperRef.current.getBoundingClientRect();
+      longPressIndicatorTimer.current = setTimeout(() => {
+        if (longPressCancelled.current) return;
+        setLongPressIndicator({ x: sx - rect.left, y: sy - rect.top });
+      }, 150);
+
       longPressTimer.current = setTimeout(() => {
         if (longPressCancelled.current) return;
-        const rect = wrapperRef.current!.getBoundingClientRect();
+        setLongPressIndicator(null);
+        try {
+          navigator.vibrate?.(50);
+        } catch { /* not supported */ }
         try {
           const vp = new WebMercatorViewport({
             ...viewState,
@@ -274,23 +332,39 @@ export default function DeckMap({
             height: rect.height,
           });
           const [lng, lat] = vp.unproject([sx - rect.left, sy - rect.top]);
-          onRightClick({ screenX: sx, screenY: sy, lng, lat });
+          if (onAddStationAt) {
+            onAddStationAt({ lng, lat });
+          } else if (onRightClick) {
+            onRightClick({ screenX: sx, screenY: sy, lng, lat });
+          }
         } catch { /* ignore */ }
+        longPressStartPos.current = null;
       }, LONG_PRESS_MS);
     },
-    [viewState, onRightClick, designerMode],
+    [viewState, onRightClick, onAddStationAt, designerMode],
   );
 
-  const cancelLongPress = useCallback(() => {
-    longPressCancelled.current = true;
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }, []);
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      if (!longPressStartPos.current) return;
+      const touch = e.touches[0];
+      const dx = touch.clientX - longPressStartPos.current.x;
+      const dy = touch.clientY - longPressStartPos.current.y;
+      if (Math.sqrt(dx * dx + dy * dy) > LONG_PRESS_MOVE_THRESHOLD) {
+        cancelLongPress();
+      }
+    },
+    [cancelLongPress],
+  );
+
+  const handleTouchEnd = useCallback(() => {
+    // Only cancel if timer hasn't fired yet
+    if (longPressTimer.current) cancelLongPress();
+  }, [cancelLongPress]);
 
   // ---- FAB "place station" mode (mobile designer) ----
   const [fabPlaceMode, setFabPlaceMode] = useState(false);
+  const [fabPlaceCount, setFabPlaceCount] = useState(0);
 
   // ---- deck.gl layers ----
   const layers = useMemo(() => {
@@ -779,7 +853,10 @@ export default function DeckMap({
       setHexPathData(null);
       setHexPathLoading(null);
       if (!info.object && info.coordinate) {
-        if (fabPlaceMode && onRightClick) {
+        if (fabPlaceMode && onAddStationAt) {
+          onAddStationAt({ lng: info.coordinate[0], lat: info.coordinate[1] });
+          setFabPlaceCount((c) => c + 1);
+        } else if (fabPlaceMode && onRightClick) {
           const px = info.pixel?.[0] ?? 0;
           const py = info.pixel?.[1] ?? 0;
           const rect = wrapperRef.current?.getBoundingClientRect();
@@ -795,7 +872,7 @@ export default function DeckMap({
         }
       }
     },
-    [onMapClick, onStationClick, onRightClick, designerMode, fabPlaceMode, suitabilityWeights, suitabilityDecayRadii, suitabilityDensityScales, proximityFactors],
+    [onMapClick, onStationClick, onRightClick, onAddStationAt, designerMode, fabPlaceMode, suitabilityWeights, suitabilityDecayRadii, suitabilityDensityScales, proximityFactors],
   );
 
   return (
@@ -804,8 +881,8 @@ export default function DeckMap({
       className="relative w-full h-full"
       onContextMenu={handleContextMenu}
       onTouchStart={handleTouchStart}
-      onTouchMove={cancelLongPress}
-      onTouchEnd={cancelLongPress}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
       onTouchCancel={cancelLongPress}
     >
       <DeckGL
@@ -833,6 +910,30 @@ export default function DeckMap({
           style={{ width: "100%", height: "100%" }}
         >
           <NavigationControl position="bottom-right" showCompass={false} />
+
+          {/* ── Terrain hillshade (raster-dem from AWS Terrain Tiles) ── */}
+          {activeOverlays.has("terrain") && (
+            <Source
+              id="terrain-dem"
+              type="raster-dem"
+              tiles={["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"]}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              {...({ encoding: "terrarium" } as any)}
+              tileSize={256}
+              maxzoom={15}
+            >
+              <Layer
+                id="terrain-hillshade"
+                type="hillshade"
+                paint={{
+                  "hillshade-exaggeration": 0.5,
+                  "hillshade-shadow-color": "#473B2B",
+                  "hillshade-highlight-color": "#FAFAF8",
+                  "hillshade-illumination-direction": 315,
+                }}
+              />
+            </Source>
+          )}
 
           {/* ── LRT station icons (train markers) ── */}
           {lrtStationPoints.map((f, i) => {
@@ -915,7 +1016,7 @@ export default function DeckMap({
       </DeckGL>
 
       {/* ── Click popup (hex suitability or station info) ── */}
-      {popup && (
+      {popup && !isMobile && (
         <div
           className="absolute z-50 pointer-events-auto"
           style={{ left: popup.x, top: popup.y, transform: "translate(-50%, -100%) translateY(-12px)" }}
@@ -924,7 +1025,6 @@ export default function DeckMap({
             className="bg-[var(--color-surface)] rounded-lg shadow-lg border border-[var(--color-border)] min-w-[180px] max-w-[260px] relative"
             style={{ fontFamily: "Roboto, sans-serif" }}
           >
-            {/* Close button */}
             <button
               onClick={() => { setPopup(null); setHexPathData(null); setHexPathLoading(null); }}
               className="absolute top-1.5 right-1.5 w-5 h-5 flex items-center justify-center rounded-full text-[var(--color-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-secondary)] transition-colors"
@@ -959,7 +1059,6 @@ export default function DeckMap({
               />
             )}
           </div>
-          {/* Arrow */}
           <div className="flex justify-center -mt-px">
             <div
               className="w-3 h-3 bg-[var(--color-surface)] border-r border-b border-[var(--color-border)]"
@@ -969,66 +1068,143 @@ export default function DeckMap({
         </div>
       )}
 
-      {/* Locate me button */}
-      <button
-        onClick={() => {
-          if (!navigator.geolocation || geolocating) return;
-          setGeolocating(true);
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              setViewState((prev: any) => ({
-                ...prev,
-                latitude: pos.coords.latitude,
-                longitude: pos.coords.longitude,
-                zoom: 14,
-                transitionDuration: 1200,
-                transitionInterpolator: new FlyToInterpolator(),
-              }));
-              setGeolocating(false);
-            },
-            () => setGeolocating(false),
-            { enableHighAccuracy: true, timeout: 8000 },
-          );
-        }}
-        className="absolute bottom-6 right-4 z-20 w-10 h-10 bg-[var(--color-surface)] rounded-lg shadow-[var(--shadow-md)] flex items-center justify-center hover:bg-[var(--color-surface-hover)] transition-colors"
-        aria-label="Center on my location"
-        title="My location"
+      {/* ── Mobile bottom card popup ── */}
+      <MobileInfoCard
+        open={!!popup && isMobile}
+        onClose={() => { setPopup(null); setHexPathData(null); setHexPathLoading(null); }}
       >
-        {geolocating ? (
-          <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-secondary)" strokeWidth="2">
-            <path d="M12 2v4m0 12v4m10-10h-4M6 12H2m15.07-5.07-2.83 2.83M9.76 14.24l-2.83 2.83m0-10.14 2.83 2.83m4.48 4.48 2.83 2.83"/>
-          </svg>
-        ) : (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="4"/>
-            <path d="M12 2v2m0 16v2M2 12h2m16 0h2"/>
-          </svg>
-        )}
-      </button>
+        {popup?.kind === "hex" ? (
+          <HexPopupContent
+            h3Id={popup.h3Id}
+            score={popup.score}
+            proxFactor={popup.proxFactor}
+            activePathFactor={(hexPathData as any)?.properties?.factor ?? null}
+            loadingFactor={hexPathLoading}
+            onFactorClick={(factorKey) => handleFetchHexPath(popup.h3Id, factorKey)}
+          />
+        ) : popup?.kind === "station" ? (
+          <StationPopupContent
+            station={popup.station}
+            designerMode={designerMode}
+            onDelete={
+              designerMode && onDeleteStation
+                ? () => {
+                    onDeleteStation(popup.station.id);
+                    setPopup(null);
+                  }
+                : undefined
+            }
+          />
+        ) : null}
+      </MobileInfoCard>
 
-      {/* Map style switcher */}
-      <div className="absolute bottom-6 left-4 flex gap-1 bg-[var(--color-surface)] rounded-lg p-1 shadow-[var(--shadow-md)]">
-        {(Object.keys(MAP_STYLES) as MapStyleKey[]).map((style) => (
+      {/* Map controls: mobile centers style + locate in one bar; desktop keeps them in corners */}
+      {isMobile ? (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-[var(--color-surface)] rounded-lg p-1 shadow-[var(--shadow-md)]">
+          {(Object.keys(MAP_STYLES) as MapStyleKey[]).map((style) => (
+            <button
+              key={style}
+              onClick={() => setMapStyle(style)}
+              className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors ${
+                mapStyle === style
+                  ? "bg-[var(--color-active-bg)] text-[var(--color-blue)]"
+                  : "text-[var(--color-secondary)] hover:bg-[var(--color-surface-hover)]"
+              }`}
+            >
+              {style === "streets" ? "Map" : style === "light" ? "Light" : "Satellite"}
+            </button>
+          ))}
+          <div className="w-px h-5 bg-[var(--color-border)] mx-0.5" />
           <button
-            key={style}
-            onClick={() => setMapStyle(style)}
-            className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors ${
-              mapStyle === style
-                ? "bg-[var(--color-active-bg)] text-[var(--color-blue)]"
-                : "text-[var(--color-secondary)] hover:bg-[var(--color-surface-hover)]"
-            }`}
+            onClick={() => {
+              if (!navigator.geolocation || geolocating) return;
+              setGeolocating(true);
+              navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                  setViewState((prev: any) => ({
+                    ...prev,
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude,
+                    zoom: 14,
+                    transitionDuration: 1200,
+                    transitionInterpolator: new FlyToInterpolator(),
+                  }));
+                  setGeolocating(false);
+                },
+                () => setGeolocating(false),
+                { enableHighAccuracy: true, timeout: 8000 },
+              );
+            }}
+            className="w-8 h-8 rounded-md flex items-center justify-center hover:bg-[var(--color-surface-hover)] transition-colors"
+            aria-label="Center on my location"
           >
-            {style === "streets"
-              ? "Map"
-              : style === "light"
-                ? "Light"
-                : "Satellite"}
+            {geolocating ? (
+              <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-secondary)" strokeWidth="2">
+                <path d="M12 2v4m0 12v4m10-10h-4M6 12H2m15.07-5.07-2.83 2.83M9.76 14.24l-2.83 2.83m0-10.14 2.83 2.83m4.48 4.48 2.83 2.83"/>
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2"/>
+              </svg>
+            )}
           </button>
-        ))}
-      </div>
+        </div>
+      ) : (
+        <>
+          <button
+            onClick={() => {
+              if (!navigator.geolocation || geolocating) return;
+              setGeolocating(true);
+              navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                  setViewState((prev: any) => ({
+                    ...prev,
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude,
+                    zoom: 14,
+                    transitionDuration: 1200,
+                    transitionInterpolator: new FlyToInterpolator(),
+                  }));
+                  setGeolocating(false);
+                },
+                () => setGeolocating(false),
+                { enableHighAccuracy: true, timeout: 8000 },
+              );
+            }}
+            className="absolute bottom-6 right-4 z-20 w-10 h-10 bg-[var(--color-surface)] rounded-lg shadow-[var(--shadow-md)] flex items-center justify-center hover:bg-[var(--color-surface-hover)] transition-colors"
+            aria-label="Center on my location"
+            title="My location"
+          >
+            {geolocating ? (
+              <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-secondary)" strokeWidth="2">
+                <path d="M12 2v4m0 12v4m10-10h-4M6 12H2m15.07-5.07-2.83 2.83M9.76 14.24l-2.83 2.83m0-10.14 2.83 2.83m4.48 4.48 2.83 2.83"/>
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2"/>
+              </svg>
+            )}
+          </button>
+          <div className="absolute bottom-6 left-4 flex gap-1 bg-[var(--color-surface)] rounded-lg p-1 shadow-[var(--shadow-md)]">
+            {(Object.keys(MAP_STYLES) as MapStyleKey[]).map((style) => (
+              <button
+                key={style}
+                onClick={() => setMapStyle(style)}
+                className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors ${
+                  mapStyle === style
+                    ? "bg-[var(--color-active-bg)] text-[var(--color-blue)]"
+                    : "text-[var(--color-secondary)] hover:bg-[var(--color-surface-hover)]"
+                }`}
+              >
+                {style === "streets" ? "Map" : style === "light" ? "Light" : "Satellite"}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Designer mode indicator */}
-      {designerMode && (
+      {designerMode && !fabPlaceMode && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-[var(--color-blue)] text-white text-[12px] font-medium px-4 py-1.5 rounded-full shadow-[var(--shadow-md)] flex items-center gap-2 pointer-events-none">
           <svg
             width="14"
@@ -1041,33 +1217,93 @@ export default function DeckMap({
           >
             <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
           </svg>
-          {isMobile ? "Long-press to add stations" : "Designer Mode — Right-click to add stations"}
+          {isMobile ? "Long-press or tap + to add stations" : "Designer Mode — Right-click to add stations"}
         </div>
       )}
 
-      {/* FAB — mobile designer "place station" button */}
-      {designerMode && isMobile && (
-        <button
-          onClick={() => setFabPlaceMode((p) => !p)}
-          className={`absolute bottom-20 right-4 z-30 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all ${
-            fabPlaceMode
-              ? "bg-[var(--color-green)] text-white scale-110 ring-4 ring-[var(--color-green)]/30"
-              : "bg-[var(--color-blue)] text-white"
-          }`}
-          aria-label={fabPlaceMode ? "Cancel placing station" : "Add station"}
+      {/* Long-press visual indicator */}
+      {longPressIndicator && (
+        <div
+          className="absolute z-40 pointer-events-none"
+          style={{ left: longPressIndicator.x, top: longPressIndicator.y }}
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            {fabPlaceMode ? (
-              <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>
-            ) : (
-              <><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></>
+          <div className="w-12 h-12 -ml-6 -mt-6 rounded-full border-2 border-[var(--color-blue)] opacity-60 animate-ping" />
+          <div className="w-6 h-6 -ml-3 -mt-9 rounded-full bg-[var(--color-blue)]/20" />
+        </div>
+      )}
+
+      {/* Mobile drag affordance hint */}
+      {showDragHint && isMobile && designerMode && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 z-40 pointer-events-none animate-[fadeIn_200ms_ease]">
+          <div className="bg-[var(--color-fg)] text-white text-[12px] font-medium px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 whitespace-nowrap opacity-90">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="5 9 2 12 5 15" /><polyline points="9 5 12 2 15 5" /><polyline points="15 19 12 22 9 19" /><polyline points="19 9 22 12 19 15" /><line x1="2" y1="12" x2="22" y2="12" /><line x1="12" y1="2" x2="12" y2="22" />
+            </svg>
+            Hold &amp; drag to move
+          </div>
+        </div>
+      )}
+
+      {/* Mobile designer floating controls */}
+      {designerMode && isMobile && (
+        <>
+          {/* Undo / Redo buttons */}
+          <div className="absolute bottom-20 left-4 z-30 flex flex-col gap-2">
+            <button
+              onClick={onUndo}
+              disabled={!canUndo}
+              className="w-10 h-10 rounded-full bg-[var(--color-surface)] shadow-[var(--shadow-md)] flex items-center justify-center transition-colors disabled:opacity-30"
+              aria-label="Undo"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+            </button>
+            <button
+              onClick={onRedo}
+              disabled={!canRedo}
+              className="w-10 h-10 rounded-full bg-[var(--color-surface)] shadow-[var(--shadow-md)] flex items-center justify-center transition-colors disabled:opacity-30"
+              aria-label="Redo"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
+              </svg>
+            </button>
+          </div>
+
+          {/* FAB — place station button */}
+          <button
+            onClick={() => {
+              setFabPlaceMode((p) => {
+                if (!p) setFabPlaceCount(0);
+                return !p;
+              });
+            }}
+            className={`absolute bottom-20 right-4 z-30 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all ${
+              fabPlaceMode
+                ? "bg-[var(--color-green)] text-white scale-110 ring-4 ring-[var(--color-green)]/30"
+                : "bg-[var(--color-blue)] text-white"
+            }`}
+            aria-label={fabPlaceMode ? "Done placing stations" : "Add station"}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              {fabPlaceMode ? (
+                <><polyline points="20 6 9 17 4 12" /></>
+              ) : (
+                <><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></>
+              )}
+            </svg>
+            {fabPlaceMode && fabPlaceCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-white text-[var(--color-green)] text-[11px] font-bold flex items-center justify-center shadow-sm">
+                {fabPlaceCount}
+              </span>
             )}
-          </svg>
-        </button>
+          </button>
+        </>
       )}
       {fabPlaceMode && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-[var(--color-green)] text-white text-[12px] font-medium px-4 py-1.5 rounded-full shadow-[var(--shadow-md)] pointer-events-none z-30 animate-pulse">
-          Tap the map to place a station
+          Tap the map to place stations
         </div>
       )}
     </div>

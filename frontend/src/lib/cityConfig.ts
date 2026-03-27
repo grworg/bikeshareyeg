@@ -34,7 +34,8 @@ export const cityConfig = {
     "commercial": "Commercial",
     "education": "Education",
     "recreation": "Recreation",
-    "population": "Population"
+    "population": "Population",
+    "hilliness": "Terrain"
   }
 } as const;
 

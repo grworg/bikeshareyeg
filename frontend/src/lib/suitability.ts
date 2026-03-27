@@ -22,6 +22,7 @@ import { cityConfig } from "@/lib/cityConfig";
 
 export const FACTOR_LABELS: Record<string, string> = {
   population: cityConfig.factorLabels.population,
+  hilliness: cityConfig.factorLabels.hilliness,
   commercial: cityConfig.factorLabels.commercial,
   education: cityConfig.factorLabels.education,
   recreation: cityConfig.factorLabels.recreation,
@@ -56,6 +57,7 @@ export const DEFAULT_DENSITY_SCALES: PlannerDensityScales & Record<string, numbe
 /** All factor weights set to zero (initial / reset state). */
 export const ZERO_WEIGHTS: PlannerWeights & Record<string, number> = {
   population: 0,
+  hilliness: 0,
   lrt: 0,
   bike_infra: 0,
   transit: 0,
@@ -150,9 +152,12 @@ export function scoreHex(
       const displayDist: number | null = props[netDistKey] ?? props[distKey] ?? null;
       extra = displayDist != null && isFinite(displayDist) ? `${Math.round(displayDist)}m` : "unreachable";
 
-    // --- Direct factor (population, etc.) ---
+    // --- Direct factor (population, hilliness, etc.) ---
     } else {
       fs = props[key] ?? 0;
+      if (key === "hilliness" && "slope_pct" in props) {
+        extra = `${(props.slope_pct as number).toFixed(1)}% slope`;
+      }
     }
 
     factors[key] = { score: fs, extra };

@@ -8,6 +8,7 @@ import {
   FolderOpen,
   BookOpen,
   FileText,
+  FlaskConical,
   Mail,
   Bike,
 } from "lucide-react";
@@ -33,6 +34,10 @@ const DOCS_ITEM: NavDef = {
   mode: "docs", label: "Documentation", shortLabel: "Docs", icon: <BookOpen size={20} />,
 };
 
+const PILOT_ITEM: NavDef = {
+  mode: "docs", label: "Pilot Proposal", shortLabel: "Pilot", icon: <FlaskConical size={20} />,
+};
+
 const PROPOSAL_ITEM: NavDef = {
   mode: "docs", label: "City Proposal", shortLabel: "Proposal", icon: <FileText size={20} />,
 };
@@ -41,6 +46,7 @@ export default function SideNav() {
   const pathname = usePathname();
   const currentMode = modeFromPathname(pathname);
   const activeNetworkId = useNetworkStore((s) => s.activeNetworkId);
+  const isPilot = pathname.startsWith("/docs/pilot");
   const isProposal = pathname.startsWith("/docs/proposal");
 
   return (
@@ -64,7 +70,8 @@ export default function SideNav() {
         />
       ))}
 
-      <DesktopNavLink item={DOCS_ITEM} href="/docs" active={currentMode === "docs" && !isProposal} />
+      <DesktopNavLink item={DOCS_ITEM} href="/docs" active={currentMode === "docs" && !isProposal && !isPilot} />
+      <DesktopNavLink item={PILOT_ITEM} href="/docs/pilot" active={isPilot} />
       <DesktopNavLink item={PROPOSAL_ITEM} href="/docs/proposal" active={isProposal} />
 
       <div className="flex-1" />

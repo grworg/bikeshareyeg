@@ -48,9 +48,14 @@ async def compute_routes(req: RoutesRequest, request: Request) -> RoutesResponse
             tasks.append(compute_bike(req.origin, req.destination, client))
         if "bikeshare" in req.modes:
             tasks.append(compute_bikeshare(req.origin, req.destination, client, _station_list))
-        results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    routes = [r for r in results if r is not None]
+    routes = []
+    for result in results:
+        if isinstance(result, Exception):
+            print(f"[routing] Non-transit computation error: {result}")
+        elif result is not None:
+            routes.append(result)
 
     # Transit routes: OTP (bus + LRT) with GTFS fallback (LRT-only)
     async with httpx.AsyncClient(timeout=EXTERNAL_TIMEOUT) as client:
@@ -83,6 +88,11 @@ async def compute_routes(req: RoutesRequest, request: Request) -> RoutesResponse
     if requested_transit and not has_transit:
         h = dep_s // 3600
         notices.append(f"No transit service found at {h:02d}:{(dep_s % 3600) // 60:02d}. Try a different departure time.")
+
+    requested_bs = "bikeshare" in req.modes or "transit_bike" in req.modes
+    has_bs = any(r.mode in ("bikeshare", "transit_bike") for r in routes)
+    if requested_bs and not has_bs and _station_list:
+        notices.append("No bikeshare routes found — your origin or destination may be too far from a station.")
 
     routes.sort(key=lambda r: r.total_duration_s)
 

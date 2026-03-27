@@ -33,7 +33,7 @@ from src.config import city
 
 _RT_LABEL = city.transit.rapid_transit_label
 
-MAX_WALK_TO_STATION_M = 1500
+MAX_WALK_TO_STATION_M = 2500
 MAX_WALK_TO_RT_M = 2000
 MAX_BIKE_TO_RT_M = 3000
 MAX_WALK_BS_TO_STOP_M = 800

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   FilePlus,
@@ -15,6 +15,7 @@ import { useAppStore } from "@/lib/appStore";
 import { useNetworkStore } from "@/lib/networkStore";
 import type { GeocodedPlace, SavedNetwork } from "@/lib/types";
 import { modeFromPathname } from "@/lib/navigation";
+import { useIsMobile } from "@/lib/useMediaQuery";
 import SearchPanel from "@/components/SearchPanel";
 import PlannerControls from "@/components/PlannerControls";
 import StationList from "@/components/StationList";
@@ -37,6 +38,7 @@ export default function AppSidebar() {
   const pathname = usePathname();
   const mode = modeFromPathname(pathname);
   const router = useRouter();
+  const isMobile = useIsMobile();
 
   const origin = useAppStore((s) => s.origin);
   const destination = useAppStore((s) => s.destination);
@@ -76,6 +78,8 @@ export default function AppSidebar() {
   const selectedStation = stations.find((s) => s.id === selectedStationId) ?? null;
   const totalBikes = stations.reduce((sum, s) => sum + s.bikes, 0);
   const totalDocks = stations.reduce((sum, s) => sum + s.capacity, 0);
+
+  const stationDensity = useMemo(() => convexHullDensity(stations), [stations]);
 
   const handleFlyToPlace = useCallback((place: GeocodedPlace) => {
     useAppStore.getState().setFlyTo({ latitude: place.lat, longitude: place.lng, zoom: 14, _ts: Date.now() });
@@ -287,12 +291,21 @@ export default function AppSidebar() {
         <div className="flex-1 flex flex-col min-h-0">
           <div className="px-5 pt-3 pb-2 border-b border-[var(--color-border)]">
             <p className="text-[12px] text-[var(--color-secondary)]">
-              Right-click map to add stations
+              {isMobile ? "Long-press or tap + to add stations" : "Right-click map to add stations"}
             </p>
             <div className="flex items-center gap-4 mt-1.5 text-[12px]">
               <span className="text-[var(--color-fg)] font-medium">{stations.length} stations</span>
               <span className="text-[var(--color-secondary)]">{totalBikes} bikes</span>
               <span className="text-[var(--color-secondary)]">{totalDocks} docks</span>
+              {stationDensity !== null && (
+                <span
+                  className="font-medium tabular-nums"
+                  style={{ color: stationDensity >= 8 ? "#34a853" : stationDensity >= 5 ? "#e37400" : "#d32f2f" }}
+                  title="Station density: stations per km² within the convex hull of your network. ITDP recommends 10–16 for mature systems; 8+ is a good pilot target."
+                >
+                  {stationDensity.toFixed(1)} stn/km²
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-1.5 mt-2 -mx-1">
               <ToolBtn icon={<Undo2 size={15} />} onClick={() => useNetworkStore.getState().undo()} disabled={!canUndo} title="Undo (Ctrl+Z)" />
@@ -339,6 +352,7 @@ export default function AppSidebar() {
                 stationCount={stations.length}
                 onStep={useNetworkStore.getState().step}
                 isStepping={isStepping}
+                isMobile={!!isMobile}
               />
             ) : designerTab === "history" ? (
               <BuildHistory
@@ -437,4 +451,46 @@ function ToolBtn({ icon, onClick, disabled, title }: { icon: React.ReactNode; on
       {icon}
     </button>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Station density via convex hull (stations per km²)
+// ---------------------------------------------------------------------------
+
+function convexHullDensity(stations: { lat: number; lng: number }[]): number | null {
+  if (stations.length < 3) return null;
+
+  const LAT_M = 111_320;
+  const LNG_M = 111_320 * Math.cos(53.5 * Math.PI / 180);
+  const pts = stations.map((s) => ({ x: s.lng * LNG_M, y: s.lat * LAT_M }));
+
+  pts.sort((a, b) => a.x - b.x || a.y - b.y);
+  const cross = (O: typeof pts[0], A: typeof pts[0], B: typeof pts[0]) =>
+    (A.x - O.x) * (B.y - O.y) - (A.y - O.y) * (B.x - O.x);
+
+  const lower: typeof pts = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper: typeof pts = [];
+  for (let i = pts.length - 1; i >= 0; i--) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pts[i]) <= 0) upper.pop();
+    upper.push(pts[i]);
+  }
+  lower.pop();
+  upper.pop();
+  const hull = [...lower, ...upper];
+  if (hull.length < 3) return null;
+
+  let area = 0;
+  for (let i = 0; i < hull.length; i++) {
+    const j = (i + 1) % hull.length;
+    area += hull[i].x * hull[j].y;
+    area -= hull[j].x * hull[i].y;
+  }
+  const areaKm2 = Math.abs(area) / 2 / 1_000_000;
+  if (areaKm2 < 0.001) return null;
+
+  return stations.length / areaKm2;
 }

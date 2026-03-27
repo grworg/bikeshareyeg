@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import {
   Search, ArrowLeft, X, MapPin, Navigation, Clock,
-  Check,
+  Check, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { useAppStore } from "@/lib/appStore";
 import type { RouteModeToggle } from "@/lib/appStore";
@@ -13,6 +13,7 @@ import { geocode, reverseGeocode } from "@/lib/api";
 import { MODE_CONFIG } from "@/lib/constants";
 import { shortLabel, MODE_TOGGLE_CONFIG } from "@/lib/routeHelpers";
 import RouteCard from "@/components/RouteCard";
+import ElevationProfile from "@/components/ElevationProfile";
 
 type Phase = "bar" | "search" | "results" | "viewing";
 
@@ -104,6 +105,33 @@ export default function MobileRoutingView() {
     else setPhase("bar");
   }, [phase]);
 
+  // ---- Edge swipe to go back ----
+  const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
+  const [swipeX, setSwipeX] = useState(0);
+
+  const handleSwipeTouchStart = useCallback((e: React.TouchEvent) => {
+    if (phase === "bar") return;
+    const touch = e.touches[0];
+    if (touch.clientX < 30) {
+      swipeStart.current = { x: touch.clientX, y: touch.clientY, t: Date.now() };
+    }
+  }, [phase]);
+
+  const handleSwipeTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!swipeStart.current) return;
+    const dx = e.touches[0].clientX - swipeStart.current.x;
+    const dy = Math.abs(e.touches[0].clientY - swipeStart.current.y);
+    if (dy > 60) { swipeStart.current = null; setSwipeX(0); return; }
+    setSwipeX(Math.max(0, dx));
+  }, []);
+
+  const handleSwipeTouchEnd = useCallback(() => {
+    if (!swipeStart.current) { setSwipeX(0); return; }
+    if (swipeX > 80) handleBack();
+    swipeStart.current = null;
+    setSwipeX(0);
+  }, [swipeX, handleBack]);
+
   // ---- Bar phase ----
   if (phase === "bar") {
     return (
@@ -133,7 +161,12 @@ export default function MobileRoutingView() {
   // ---- Results phase ----
   if (phase === "results") {
     return (
-      <div className="absolute inset-0 z-50 bg-[var(--color-surface)] flex flex-col">
+      <div
+        className="absolute inset-0 z-50 bg-[var(--color-surface)] flex flex-col"
+        onTouchStart={handleSwipeTouchStart}
+        onTouchMove={handleSwipeTouchMove}
+        onTouchEnd={handleSwipeTouchEnd}
+      >
         <div className="flex items-center gap-2 px-2 pt-safe shrink-0 border-b border-[var(--color-border)]">
           <button
             onClick={handleBack}
@@ -198,6 +231,25 @@ export default function MobileRoutingView() {
             </>
           )}
         </div>
+
+        {/* Edge swipe indicator */}
+        {swipeX > 10 && (
+          <div
+            className="absolute top-0 left-0 bottom-0 pointer-events-none z-50 flex items-center"
+            style={{ width: Math.min(swipeX, 120) }}
+          >
+            <div
+              className="absolute inset-0"
+              style={{ background: "linear-gradient(to right, rgba(0,0,0,0.06), transparent)" }}
+            />
+            <div
+              className="ml-2 w-8 h-8 rounded-full bg-[var(--color-surface)] shadow-md flex items-center justify-center transition-opacity"
+              style={{ opacity: Math.min(swipeX / 80, 1) }}
+            >
+              <ArrowLeft size={16} className="text-[var(--color-fg)]" />
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -205,36 +257,34 @@ export default function MobileRoutingView() {
   // ---- Viewing phase ----
   const selectedRoute = selectedRouteIndex !== null ? routes[selectedRouteIndex] : null;
   if (phase === "viewing" && selectedRoute) {
-    const cfg = MODE_CONFIG[selectedRoute.mode] || MODE_CONFIG.walk;
     return (
-      <div className="absolute top-3 left-3 right-14 z-30 bg-[var(--color-surface)] rounded-2xl shadow-[var(--shadow-md)] overflow-hidden">
-        <div className="flex items-center gap-3 px-4 py-3">
-          <button onClick={() => setPhase("results")} className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-hover)] transition-colors shrink-0">
-            <ArrowLeft size={18} className="text-[var(--color-fg)]" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span style={{ color: cfg.color }}>{cfg.icon}</span>
-              <span className="text-[14px] font-semibold text-[var(--color-fg)]">{fmtDuration(selectedRoute.total_duration_s)}</span>
-              <span className="text-[12px] text-[var(--color-secondary)]">· {fmtDistance(selectedRoute.total_distance_m)}</span>
-            </div>
-            <div className="text-[11px] text-[var(--color-secondary)] truncate mt-0.5">
-              {shortLabel(origin?.label ?? "")} → {shortLabel(destination?.label ?? "")}
+      <>
+        <MobileViewingCard route={selectedRoute} origin={origin} destination={destination} onBack={() => setPhase("results")} onClear={() => { useAppStore.getState().clearRoutes(); useAppStore.getState().setOrigin(null); useAppStore.getState().setDestination(null); setPhase("bar"); }} />
+        {/* Transparent left-edge swipe zone */}
+        <div
+          className="absolute top-0 left-0 bottom-0 w-[30px] z-40"
+          onTouchStart={handleSwipeTouchStart}
+          onTouchMove={handleSwipeTouchMove}
+          onTouchEnd={handleSwipeTouchEnd}
+        />
+        {swipeX > 10 && (
+          <div
+            className="absolute top-0 left-0 bottom-0 pointer-events-none z-50 flex items-center"
+            style={{ width: Math.min(swipeX, 120) }}
+          >
+            <div
+              className="absolute inset-0"
+              style={{ background: "linear-gradient(to right, rgba(0,0,0,0.06), transparent)" }}
+            />
+            <div
+              className="ml-2 w-8 h-8 rounded-full bg-[var(--color-surface)] shadow-md flex items-center justify-center transition-opacity"
+              style={{ opacity: Math.min(swipeX / 80, 1) }}
+            >
+              <ArrowLeft size={16} className="text-[var(--color-fg)]" />
             </div>
           </div>
-          <button
-            onClick={() => {
-              useAppStore.getState().clearRoutes();
-              useAppStore.getState().setOrigin(null);
-              useAppStore.getState().setDestination(null);
-              setPhase("bar");
-            }}
-            className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-hover)] transition-colors shrink-0"
-          >
-            <X size={16} className="text-[var(--color-secondary)]" />
-          </button>
-        </div>
-      </div>
+        )}
+      </>
     );
   }
 
@@ -466,6 +516,71 @@ function MobileSearchPanel({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// MobileViewingCard — expandable route summary with optional elevation profile
+// ===========================================================================
+
+function MobileViewingCard({
+  route,
+  origin,
+  destination,
+  onBack,
+  onClear,
+}: {
+  route: import("@/lib/types").RouteOption;
+  origin: import("@/lib/types").GeocodedPlace | null;
+  destination: import("@/lib/types").GeocodedPlace | null;
+  onBack: () => void;
+  onClear: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const cfg = MODE_CONFIG[route.mode] || MODE_CONFIG.walk;
+  const hasElevation = route.elevation_profile && route.elevation_profile.length >= 2;
+
+  return (
+    <div className="absolute top-3 left-3 right-14 z-30 bg-[var(--color-surface)] rounded-2xl shadow-[var(--shadow-md)] overflow-hidden">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <button onClick={onBack} className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-hover)] transition-colors shrink-0">
+          <ArrowLeft size={18} className="text-[var(--color-fg)]" />
+        </button>
+        <button className="flex-1 min-w-0 text-left" onClick={() => hasElevation && setExpanded((e) => !e)}>
+          <div className="flex items-center gap-2">
+            <span style={{ color: cfg.color }}>{cfg.icon}</span>
+            <span className="text-[14px] font-semibold text-[var(--color-fg)]">{fmtDuration(route.total_duration_s)}</span>
+            <span className="text-[12px] text-[var(--color-secondary)]">&middot; {fmtDistance(route.total_distance_m)}</span>
+            {hasElevation && (
+              expanded
+                ? <ChevronUp size={14} className="text-[var(--color-secondary)]" />
+                : <ChevronDown size={14} className="text-[var(--color-secondary)]" />
+            )}
+          </div>
+          <div className="text-[11px] text-[var(--color-secondary)] truncate mt-0.5">
+            {shortLabel(origin?.label ?? "")} &rarr; {shortLabel(destination?.label ?? "")}
+          </div>
+        </button>
+        <button
+          onClick={onClear}
+          className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-hover)] transition-colors shrink-0"
+        >
+          <X size={16} className="text-[var(--color-secondary)]" />
+        </button>
+      </div>
+
+      {expanded && hasElevation && (
+        <div className="px-4 pb-3">
+          <ElevationProfile
+            profile={route.elevation_profile!}
+            totalAscent={route.total_ascent_m}
+            totalDescent={route.total_descent_m}
+            height={80}
+            color={cfg.color}
+          />
+        </div>
+      )}
     </div>
   );
 }

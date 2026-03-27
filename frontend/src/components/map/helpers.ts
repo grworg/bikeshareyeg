@@ -22,6 +22,7 @@ export const FACTOR_COLORS: Record<string, string> = {
   education: "#283593",
   recreation: "#2e7d32",
   population: "#e53935",
+  hilliness: "#6d4c41",
 };
 
 export const PATHABLE_FACTORS = new Set(["lrt", "bike_infra", "transit", "commercial", "education", "recreation"]);

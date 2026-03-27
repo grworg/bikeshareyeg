@@ -56,6 +56,7 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "commercial": 0.6,
     "education": 0.4,
     "recreation": 0.3,
+    "hilliness": 0.3,
 }
 
 # ---------------------------------------------------------------------------
@@ -568,6 +569,8 @@ class SuitabilityEngine:
         return [
             {"key": "population", "name": "Population Density",
              "description": "Census population density (point-in-polygon)"},
+            {"key": "hilliness", "name": "Terrain Flatness",
+             "description": "Average slope to H3 neighbours — flat terrain scores highest"},
             {"key": "lrt", "name": f"{label} Station Proximity",
              "description": f"Distance to nearest {label} station"},
             {"key": "bike_infra", "name": "Bike Infrastructure",

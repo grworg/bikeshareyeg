@@ -60,6 +60,7 @@ def main() -> None:
             "education": cfg.factor_labels.education,
             "recreation": cfg.factor_labels.recreation,
             "population": cfg.factor_labels.population,
+            "hilliness": cfg.factor_labels.hilliness,
         },
     }
 

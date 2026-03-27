@@ -9,6 +9,7 @@ import {
   TrainFront,
   Bike,
   Bus,
+  Mountain,
   Info,
   RotateCcw,
   Zap,
@@ -51,6 +52,7 @@ export interface PlannerControlsProps {
   stationCount: number;
   onStep: () => void;
   isStepping: boolean;
+  isMobile?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +101,11 @@ const HELP: Record<string, HelpEntry> = {
     title: "Parks & Recreation",
     intuitive: "Values areas surrounded by parks, recreation centres, sports facilities, and playgrounds \u2014 more facilities nearby means a higher score.",
     technical: "Counts parks, rec centres, sports facilities, pools, playgrounds, and community centres reachable within 1,000m along the road network. Score uses log normalization.",
+  },
+  hilliness: {
+    title: "Terrain Flatness",
+    intuitive: "Favours flat terrain where cycling is easy and comfortable. Steep hills discourage ridership \u2014 this factor steers stations toward areas where most riders can pedal without difficulty.",
+    technical: "Elevation queried from Open-Meteo for each hex centroid, then average absolute slope (%) computed to H3 neighbours. Scored via sigmoid: score = 1 / (1 + (slope/3)^2). Flat (0% slope) = 1.0, moderate hill (3%) = 0.5, steep (6%) = 0.2.",
   },
   proximityRadius: {
     title: "Proximity Discount \u2014 Radius",
@@ -156,6 +163,7 @@ interface FactorMeta {
 
 const FACTORS: FactorMeta[] = [
   { key: "population", label: "Population Density", color: "#e53935", helpKey: "population", icon: <Users size={14} /> },
+  { key: "hilliness", label: "Terrain Flatness", color: "#6d4c41", helpKey: "hilliness", icon: <Mountain size={14} /> },
   { key: "commercial", label: "Commercial & Retail", color: "#e65100", helpKey: "commercial", icon: <Store size={14} /> },
   { key: "education", label: "Education & Institutional", color: "#283593", helpKey: "education", icon: <GraduationCap size={14} /> },
   { key: "recreation", label: "Parks & Recreation", color: "#2e7d32", helpKey: "recreation", icon: <TreePine size={14} /> },
@@ -173,7 +181,7 @@ export default function PlannerControls({
   config, onUpdateConfig, showSuitability, onToggleSuitability,
   isSuitabilityLoading, onRunOptimize, isOptimizing, optimizeError,
   coverage, onApplyStations, hasGeneratedStations, onSeedLRT,
-  stationCount, onStep, isStepping,
+  stationCount, onStep, isStepping, isMobile = false,
 }: PlannerControlsProps) {
   const [openHelp, setOpenHelp] = useState<string | null>(null);
 
@@ -415,7 +423,7 @@ export default function PlannerControls({
             Active constraints are <strong>non-compensatory</strong> — a hex cannot compensate
             for failing one threshold by excelling in another.
           </p>
-          {(["population", "lrt", "bike_infra", "transit", "commercial", "education", "recreation"] as const).map((key) => {
+          {(["population", "hilliness", "lrt", "bike_infra", "transit", "commercial", "education", "recreation"] as const).map((key) => {
             const isActive = key in (config.minThresholds ?? {});
             const value = (config.minThresholds ?? {})[key] ?? 0.1;
             return (
@@ -436,7 +444,7 @@ export default function PlannerControls({
                     className="accent-[var(--color-blue)]"
                   />
                   <span className="text-[11px] text-[var(--color-fg)]">
-                    {key === "bike_infra" ? "Bike Infra" : key.charAt(0).toUpperCase() + key.slice(1)}
+                    {key === "bike_infra" ? "Bike Infra" : key === "hilliness" ? "Terrain" : key.charAt(0).toUpperCase() + key.slice(1)}
                   </span>
                 </label>
                 {isActive && (
@@ -500,7 +508,7 @@ export default function PlannerControls({
         {/* Network design params */}
         <div className="px-5 py-3 border-t border-[var(--color-border)] space-y-2.5">
           <p className="text-[11px] font-medium text-[var(--color-secondary)] uppercase tracking-wider">Network Design</p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className={`grid ${isMobile ? "grid-cols-2" : "grid-cols-3"} gap-2`}>
             <NumberFieldWithHelp label="Stations" value={config.numStations} min={5} max={200} step={5}
               onChange={(v) => cfg("numStations", v)} helpKey="numStations" openHelp={openHelp} onToggleHelp={toggleHelp} />
             <NumberFieldWithHelp label="Total Bikes" value={config.totalBikes} min={50} max={5000} step={25}
@@ -511,7 +519,7 @@ export default function PlannerControls({
           <HelpPanel helpKey="numStations" openHelp={openHelp} />
           <HelpPanel helpKey="totalBikes" openHelp={openHelp} />
           <HelpPanel helpKey="fillPct" openHelp={openHelp} />
-          <div className="grid grid-cols-3 gap-2">
+          <div className={`grid ${isMobile ? "grid-cols-2" : "grid-cols-3"} gap-2`}>
             <NumberFieldWithHelp label="Min Docks" value={config.minDocksPerStation} min={5} max={40} step={5}
               onChange={(v) => cfg("minDocksPerStation", v)} helpKey="minDocks" openHelp={openHelp} onToggleHelp={toggleHelp} />
             <NumberFieldWithHelp label="Max Docks" value={config.maxDocksPerStation} min={10} max={60} step={5}
@@ -676,11 +684,15 @@ function InfoButton({
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onToggle(helpKey); }}
-      className="shrink-0 rounded-full flex items-center justify-center transition-colors"
-      style={{ width: size + 4, height: size + 4, background: isOpen ? "#e8f0fe" : "transparent" }}
+      className="shrink-0 min-w-[44px] min-h-[44px] -m-3 rounded-full flex items-center justify-center transition-colors"
       title="More info"
     >
-      <Info size={size} className={isOpen ? "text-[var(--color-blue)]" : "text-[var(--color-secondary)]"} />
+      <span
+        className="rounded-full flex items-center justify-center"
+        style={{ width: size + 4, height: size + 4, background: isOpen ? "#e8f0fe" : "transparent" }}
+      >
+        <Info size={size} className={isOpen ? "text-[var(--color-blue)]" : "text-[var(--color-secondary)]"} />
+      </span>
     </button>
   );
 }

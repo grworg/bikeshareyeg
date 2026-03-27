@@ -90,3 +90,4 @@ factor_labels:
   education: "Education"
   recreation: "Recreation"
   population: "Population"
+  hilliness: "Terrain"

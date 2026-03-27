@@ -31,18 +31,18 @@ export default function ContextMenu({ menu, onAddStation, onClose }: ContextMenu
     let armed = false;
     const armTimer = setTimeout(() => { armed = true; }, 120);
 
-    function handleClick(e: MouseEvent) {
+    function handleClick(e: PointerEvent) {
       if (!armed) return;
       if (ref.current && !ref.current.contains(e.target as Node)) stableClose();
     }
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") stableClose();
     }
-    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("pointerdown", handleClick);
     document.addEventListener("keydown", handleKey);
     return () => {
       clearTimeout(armTimer);
-      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("pointerdown", handleClick);
       document.removeEventListener("keydown", handleKey);
     };
   }, [stableClose]);

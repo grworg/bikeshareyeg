@@ -45,6 +45,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const suitabilityData = useNetworkStore((s) => s.suitabilityData);
   const showSuitability = useNetworkStore((s) => s.showSuitability);
   const activeNetworkId = useNetworkStore((s) => s.activeNetworkId);
+  const canUndo = useNetworkStore((s) => s._past.length > 0);
+  const canRedo = useNetworkStore((s) => s._future.length > 0);
 
   // ---- Init stores once ----
   const initRef = useRef(false);
@@ -154,6 +156,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // Mobile: directly place a station without ContextMenu
+  const handleMobileAddStation = useCallback(
+    (lngLat: { lng: number; lat: number }) => {
+      const newId = useNetworkStore.getState().addStationAt(lngLat);
+      useAppStore.getState().setSelectedStationId(newId);
+      useAppStore.getState().setAutoFocusName(false);
+    },
+    [],
+  );
+
   // Wait for hydration so we know the correct layout before rendering
   if (isMobile === undefined) {
     return <main className="h-screen w-screen bg-[var(--color-surface)]" />;
@@ -177,6 +189,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         flyTo={flyTo}
         onMapClick={useAppStore.getState().fireMapClick}
         onRightClick={isDesigner ? useAppStore.getState().fireMapRightClick : undefined}
+        onAddStationAt={isDesigner && isMobile ? handleMobileAddStation : undefined}
         designerMode={isDesigner}
         isMobile={isMobile}
         selectedStationId={selectedStationId}
@@ -191,6 +204,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         suitabilityDensityScales={densityScales}
         suitabilityConfig={plannerConfig}
         showSuitability={showSuitability && isDesigner}
+        onUndo={useNetworkStore.getState().undo}
+        onRedo={useNetworkStore.getState().redo}
+        canUndo={canUndo}
+        canRedo={canRedo}
       />
       <OverlayControls
         activeOverlays={activeOverlays}
@@ -226,6 +243,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       );
     }
     const isRouting = mode === "routing";
+    const totalBikes = isDesigner ? stations.reduce((sum, s) => sum + s.bikes, 0) : 0;
     return (
       <main className="relative h-dvh w-screen flex flex-col">
         <div
@@ -244,6 +262,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           )}
           {isRouting && <div className="sr-only">{children}</div>}
         </div>
+
+        {/* Pull-up hint bar: shown when designer sidebar is closed */}
+        {isDesigner && !mobileSidebarOpen && !isRouting && (
+          <button
+            onClick={() => setMobileSidebarOpen(true)}
+            className="flex items-center justify-center gap-2 bg-[var(--color-surface)] shadow-[0_-2px_8px_rgba(0,0,0,0.08)] rounded-t-xl px-4 py-2"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="18 15 12 9 6 15" />
+            </svg>
+            <span className="text-[12px] font-medium text-[var(--color-fg)]">
+              {stations.length} station{stations.length !== 1 ? "s" : ""} &middot; {totalBikes} bike{totalBikes !== 1 ? "s" : ""}
+            </span>
+          </button>
+        )}
+
         <MobileTabBar mode={mode} onChangeMode={handleMobileTab} />
         <AppModal modal={modal} onClose={useAppStore.getState().closeModal} />
       </main>

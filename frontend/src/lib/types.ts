@@ -84,7 +84,7 @@ export interface RouteOption {
 // Overlays
 // ---------------------------------------------------------------------------
 
-export type OverlayKey = "lrt" | "bike" | "bus" | "population" | "docks" | "commercial" | "education" | "recreation" | "accessibility" | "motorway" | "trunk";
+export type OverlayKey = "lrt" | "bike" | "bus" | "population" | "docks" | "commercial" | "education" | "recreation" | "accessibility" | "motorway" | "trunk" | "terrain";
 
 // ---------------------------------------------------------------------------
 // Planner (auto-optimizer)
@@ -92,6 +92,7 @@ export type OverlayKey = "lrt" | "bike" | "bus" | "population" | "docks" | "comm
 
 export interface PlannerWeights {
   population: number; // 0-100
+  hilliness: number;
   lrt: number;
   bike_infra: number;
   transit: number;
